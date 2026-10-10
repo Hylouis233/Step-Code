@@ -94,11 +94,51 @@ Use this skill.
 			{
 				type: "warning",
 				code: "invalid_metadata",
-				message: "description is required",
+				message: `${join(root, "user/broken/SKILL.md")}: frontmatter is missing "description" — add e.g. description: "..."`,
 				path: join(root, "user/broken/SKILL.md"),
 				source: { type: "user" },
 			},
 		]);
+	});
+
+	it("reports a single-line diagnostic for an unquoted colon in the description", async () => {
+		const root = createTempDir();
+		const env = new NodeExecutionEnv({ cwd: root });
+		await env.createDir("user/search-first", { recursive: true });
+		await env.writeFile(
+			"user/search-first/SKILL.md",
+			"---\nname: search-first\ndescription: Search the web: before guessing\n---\nUse this skill.",
+		);
+
+		const { skills, diagnostics } = await loadSkills(env, "user");
+
+		expect(skills).toEqual([]);
+		expect(diagnostics).toEqual([
+			{
+				type: "warning",
+				code: "parse_failed",
+				message:
+					`${join(root, "user/search-first/SKILL.md")}: invalid YAML frontmatter at line 3, column 14: ` +
+					'Nested mappings are not allowed in compact mappings — description contains an unquoted ":" — ' +
+					"wrap the value in double quotes",
+				path: join(root, "user/search-first/SKILL.md"),
+			},
+		]);
+	});
+
+	it("loads a description whose colon is quoted", async () => {
+		const root = createTempDir();
+		const env = new NodeExecutionEnv({ cwd: root });
+		await env.createDir("user/search-first", { recursive: true });
+		await env.writeFile(
+			"user/search-first/SKILL.md",
+			'---\nname: search-first\ndescription: "Search the web: before guessing"\n---\nUse this skill.',
+		);
+
+		const { skills, diagnostics } = await loadSkills(env, "user");
+
+		expect(diagnostics).toEqual([]);
+		expect(skills.map((skill) => skill.description)).toEqual(["Search the web: before guessing"]);
 	});
 
 	it("loads direct markdown children only from the root directory", async () => {
