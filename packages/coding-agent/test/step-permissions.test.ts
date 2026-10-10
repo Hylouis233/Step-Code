@@ -121,6 +121,156 @@ describe("Step permission presets", () => {
 		expect(containsDangerousLifecycleCommand("sh -c 'systemctl reboot'")).toBe(true);
 	});
 
+	// The workflow tool's `script` is JavaScript executed in a sandboxed VM with
+	// no process, require, or network — not a shell command. Reading it as one
+	// left every ordinary multi-line script "unresolved" (and a script that
+	// merely mentioned `rm -rf` inside a template literal hazardous), which
+	// pinned the call behind confirmation even under auto/bypass.
+	describe("workflow tool calls", () => {
+		const inlineScript = [
+			"const findings = [];",
+			"for (const item of items) {",
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: the fixture is JavaScript source, not a shell command
+			"  findings.push(await agent(`review ${item}`, { schema: HOH_EVIDENCE_SCHEMA }));",
+			"}",
+			"return findings.filter(Boolean);",
+		].join("\n");
+
+		it("auto-approves an inline script under the auto approval mode and the bypass/autopilot presets", () => {
+			const autoMode = resolveInitialStepPermissionState({ env: {}, approvalMode: "auto" });
+			expect(autoMode.mode).toBe("auto");
+			for (const state of [
+				autoMode,
+				stepPermissionStateForPreset("bypass"),
+				stepPermissionStateForPreset("autopilot"),
+			]) {
+				expect(decideStepToolCall("workflow", { script: inlineScript }, state)).toEqual({
+					action: "allow",
+					hazardous: false,
+					reason: "Bypass approval mode is enabled",
+				});
+			}
+		});
+
+		it("bypasses saved and path-based workflow calls under bypass", () => {
+			for (const input of [{ name: "audit" }, { scriptPath: "./audit.js" }]) {
+				expect(decideStepToolCall("workflow", input, stepPermissionStateForPreset("bypass")).action).toBe("allow");
+			}
+		});
+
+		it("does not read a sandboxed script as a dangerous shell command", () => {
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: the fixture is JavaScript source, not a shell command
+			const script = "const target = './build';\nreturn `rm -rf ${target}`;";
+			const decision = decideStepToolCall("workflow", { script }, stepPermissionStateForPreset("bypass"));
+			expect(decision.action).toBe("allow");
+			expect(decision.hazardous).toBe(false);
+			expect(decision.analysisIncomplete).toBeUndefined();
+		});
+
+		it("still confirms workflow calls under ask and blocks them under read-only", () => {
+			expect(decideStepToolCall("workflow", { script: inlineScript }, stepPermissionStateForPreset("ask"))).toEqual({
+				action: "confirm",
+				hazardous: false,
+				reason: "workflow can modify the workspace or execute a command",
+			});
+			expect(
+				decideStepToolCall("workflow", { script: inlineScript }, stepPermissionStateForPreset("read-only")),
+			).toMatchObject({ action: "deny" });
+		});
+
+		it("runs a workflow call without prompting under auto", async () => {
+			const controller = new StepPermissionController({ env: {}, approvalMode: "auto" });
+			const confirm = vi.fn(async () => true);
+			const context = {
+				hasUI: true,
+				ui: { confirm },
+			} as unknown as ExtensionContext;
+			const result = await controller.handleToolCall(
+				{
+					type: "tool_call",
+					toolName: "workflow",
+					toolCallId: "workflow-12345678",
+					input: { script: inlineScript },
+				},
+				context,
+			);
+			expect(result).toBeUndefined();
+			expect(confirm).not.toHaveBeenCalled();
+		});
+
+		it("bypasses a workflow call unattended when the policy permits it", async () => {
+			const controller = new StepPermissionController({ env: {}, initialPreset: "bypass" });
+			const result = await controller.handleToolCall(
+				{
+					type: "tool_call",
+					toolName: "workflow",
+					toolCallId: "workflow-12345678",
+					input: { script: inlineScript },
+				},
+				{ hasUI: false } as never,
+			);
+			expect(result).toBeUndefined();
+		});
+
+		it("still prompts for a workflow call under confirm", async () => {
+			const controller = new StepPermissionController({ env: {}, approvalMode: "confirm" });
+			const confirm = vi.fn(async () => true);
+			const context = {
+				hasUI: true,
+				ui: { confirm },
+			} as unknown as ExtensionContext;
+			const call = {
+				type: "tool_call",
+				toolName: "workflow",
+				toolCallId: "workflow-12345678",
+				input: { script: inlineScript },
+			} as never;
+			expect(await controller.handleToolCall(call, context)).toBeUndefined();
+			expect(confirm).toHaveBeenCalledTimes(1);
+			expect(confirm).toHaveBeenCalledWith(
+				expect.stringMatching(/workflow.*12345678/u),
+				expect.stringContaining("can modify the workspace"),
+				expect.objectContaining({ overlay: true }),
+			);
+			confirm.mockResolvedValueOnce(false);
+			expect(await controller.handleToolCall(call, context)).toEqual({
+				block: true,
+				reason: "Tool call denied: workflow",
+			});
+		});
+
+		it("still blocks a workflow call under strict", async () => {
+			const controller = new StepPermissionController({ env: {}, approvalMode: "strict" });
+			const confirm = vi.fn(async () => true);
+			const context = {
+				hasUI: true,
+				ui: { confirm },
+			} as unknown as ExtensionContext;
+			const result = await controller.handleToolCall(
+				{
+					type: "tool_call",
+					toolName: "workflow",
+					toolCallId: "workflow-12345678",
+					input: { script: inlineScript },
+				},
+				context,
+			);
+			expect(result).toMatchObject({ block: true, terminate: true });
+			expect((result as { reason: string }).reason).toContain("Read-only mode blocks workflow");
+			expect(confirm).not.toHaveBeenCalled();
+		});
+
+		it("keeps an explicit per-tool override ahead of the workflow decision", () => {
+			const bypass = stepPermissionStateForPreset("bypass");
+			expect(decideStepToolCall("workflow", { script: inlineScript }, bypass, { workflow: "confirm" }).action).toBe(
+				"confirm",
+			);
+			expect(decideStepToolCall("workflow", { script: inlineScript }, bypass, { workflow: "deny" }).action).toBe(
+				"deny",
+			);
+		});
+	});
+
 	it.each([true, false])("identifies each approval without changing the decision (approved=%s)", async (approved) => {
 		const controller = new StepPermissionController({
 			env: {},
