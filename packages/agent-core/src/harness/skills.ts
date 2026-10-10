@@ -240,7 +240,12 @@ async function loadSkillFromFile(
 	const parsed = parseFrontmatter<SkillFrontmatter>(rawContent.value);
 	if (!parsed.ok) {
 		if (isDeclaredSkill) {
-			diagnostics.push({ type: "warning", code: "parse_failed", message: parsed.error.message, path: filePath });
+			diagnostics.push({
+				type: "warning",
+				code: "parse_failed",
+				message: formatFrontmatterError(filePath, parsed.error, rawContent.value),
+				path: filePath,
+			});
 		}
 		return { skill: null, diagnostics };
 	}
@@ -251,7 +256,7 @@ async function loadSkillFromFile(
 		return { skill: null, diagnostics };
 	}
 
-	for (const error of validateDescription(description)) {
+	for (const error of validateDescription(description, filePath)) {
 		diagnostics.push({ type: "warning", code: "invalid_metadata", message: error, path: filePath });
 	}
 
@@ -289,33 +294,129 @@ function validateName(name: string, parentDirName: string): string[] {
 	return errors;
 }
 
-function validateDescription(description: string | undefined): string[] {
+/**
+ * Validate description per Agent Skills spec.
+ *
+ * `filePath` keeps the "missing description" diagnostic self-contained so it stays actionable
+ * wherever diagnostics are surfaced.
+ */
+function validateDescription(description: string | undefined, filePath: string): string[] {
 	const errors: string[] = [];
 	if (!description || description.trim() === "") {
-		errors.push("description is required");
+		errors.push(`${filePath}: frontmatter is missing "description" — add e.g. description: "..."`);
 	} else if (description.length > MAX_DESCRIPTION_LENGTH) {
 		errors.push(`description exceeds ${MAX_DESCRIPTION_LENGTH} characters (${description.length})`);
 	}
 	return errors;
 }
 
+function extractFrontmatterBlock(content: string): { yamlString: string | null; body: string } {
+	const normalized = content
+		.replace(/^\uFEFF/, "")
+		.replace(/\r\n/g, "\n")
+		.replace(/\r/g, "\n");
+	if (!normalized.startsWith("---")) return { yamlString: null, body: normalized };
+	const endIndex = normalized.indexOf("\n---", 3);
+	if (endIndex === -1) return { yamlString: null, body: normalized };
+	return { yamlString: normalized.slice(4, endIndex), body: normalized.slice(endIndex + 4).trim() };
+}
+
 function parseFrontmatter<T extends Record<string, unknown>>(
 	content: string,
 ): Result<{ frontmatter: T; body: string }, Error> {
 	try {
-		const normalized = content
-			.replace(/^\uFEFF/, "")
-			.replace(/\r\n/g, "\n")
-			.replace(/\r/g, "\n");
-		if (!normalized.startsWith("---")) return { ok: true, value: { frontmatter: {} as T, body: normalized } };
-		const endIndex = normalized.indexOf("\n---", 3);
-		if (endIndex === -1) return { ok: true, value: { frontmatter: {} as T, body: normalized } };
-		const yamlString = normalized.slice(4, endIndex);
-		const body = normalized.slice(endIndex + 4).trim();
+		const { yamlString, body } = extractFrontmatterBlock(content);
+		if (yamlString === null) return { ok: true, value: { frontmatter: {} as T, body } };
 		return { ok: true, value: { frontmatter: (parse(yamlString) ?? {}) as T, body } };
 	} catch (error) {
 		return { ok: false, error: toError(error) };
 	}
+}
+
+/**
+ * The YAML block always starts on file line 2 (right after the opening `---`), so parser line
+ * numbers are shifted to point at the line a user actually edits.
+ */
+const YAML_TO_FILE_LINE_OFFSET = 1;
+
+/**
+ * Flatten a `yaml` parse error into a single line.
+ *
+ * The `yaml` package appends a quoted (and possibly truncated) source line plus a caret to its
+ * messages, which wraps into an unreadable block inside the diagnostics list.
+ */
+function describeFrontmatterError(error: unknown): { line?: number; column?: number; reason: string } {
+	const message = error instanceof Error ? error.message : String(error);
+	const [headline] = message.split("\n");
+	const location = /^(.*?)\s+at line (\d+), column (\d+)/.exec(headline ?? "");
+	const position = (error as { linePos?: Array<{ line?: number; col?: number }> }).linePos?.[0];
+	const line = position?.line ?? (location ? Number(location[2]) : undefined);
+	const column = position?.col ?? (location ? Number(location[3]) : undefined);
+	const reason = (location?.[1] ?? headline ?? "").trim() || "invalid YAML";
+
+	return {
+		line: line === undefined ? undefined : line + YAML_TO_FILE_LINE_OFFSET,
+		column,
+		reason,
+	};
+}
+
+/** A plain scalar cannot contain ": ", so its presence means the value needs quoting. */
+const hasUnquotedColonSeparator = (value: string): boolean => /:(\s|$)/.test(value);
+
+/** Drop a trailing `#` comment; `#` only starts a comment after whitespace. */
+const stripTrailingComment = (value: string): string => value.replace(/\s+#.*$/, "");
+
+/**
+ * Detect the classic frontmatter mistake of an unquoted `": "` inside the description scalar,
+ * which `yaml` rejects as a nested mapping.
+ */
+function hasUnquotedColonInDescription(content: string): boolean {
+	const { yamlString } = extractFrontmatterBlock(content);
+	if (yamlString === null) return false;
+
+	const lines = yamlString.split("\n");
+	for (let index = 0; index < lines.length; index++) {
+		const key = /^([ \t]*)description[ \t]*:[ \t]*(.*)$/.exec(lines[index]);
+		if (!key) continue;
+
+		const value = stripTrailingComment(key[2]);
+		// Quoted, flow and block scalars may legally contain ": ".
+		if (value === "" || /^[|>&*"'[\]{}]/.test(value)) continue;
+		if (hasUnquotedColonSeparator(value)) return true;
+
+		// A plain scalar may continue on more deeply indented lines.
+		const indent = key[1].length;
+		for (let next = index + 1; next < lines.length; next++) {
+			const line = lines[next];
+			if (line.trim() === "") continue;
+			const lineIndent = /^[ \t]*/.exec(line)?.[0].length ?? 0;
+			if (lineIndent <= indent) break;
+			if (hasUnquotedColonSeparator(stripTrailingComment(line))) return true;
+		}
+	}
+
+	return false;
+}
+
+/**
+ * Build a single-line, actionable diagnostic for a frontmatter syntax error, e.g.
+ * `/path/SKILL.md: invalid YAML frontmatter at line 3, column 14: Nested mappings are not allowed
+ * in compact mappings — description contains an unquoted ":" — wrap the value in double quotes`.
+ */
+function formatFrontmatterError(filePath: string, error: unknown, content: string): string {
+	const { line, column, reason } = describeFrontmatterError(error);
+	const at =
+		line !== undefined && column !== undefined
+			? ` at line ${line}, column ${column}`
+			: line !== undefined
+				? ` at line ${line}`
+				: "";
+	const hint = hasUnquotedColonInDescription(content)
+		? ' — description contains an unquoted ":" — wrap the value in double quotes'
+		: "";
+
+	return `${filePath}: invalid YAML frontmatter${at}: ${reason}${hint}`;
 }
 
 async function resolveKind(
