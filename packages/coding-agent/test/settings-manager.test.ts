@@ -597,6 +597,38 @@ describe("SettingsManager", () => {
 		});
 	});
 
+	describe("language setting", () => {
+		it("defaults to English when unset", () => {
+			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ theme: "dark" }));
+			const manager = SettingsManager.create(projectDir, agentDir);
+			expect(manager.getLanguage()).toBe("en");
+		});
+
+		it("round-trips through settings.json", async () => {
+			const settingsPath = join(agentDir, "settings.json");
+			writeFileSync(settingsPath, JSON.stringify({ theme: "dark" }));
+
+			const manager = SettingsManager.create(projectDir, agentDir);
+			manager.setLanguage("zh");
+			await manager.flush();
+
+			expect(manager.getLanguage()).toBe("zh");
+			const savedSettings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+			expect(savedSettings.language).toBe("zh");
+			// Other keys survive the write.
+			expect(savedSettings.theme).toBe("dark");
+
+			const reloaded = SettingsManager.create(projectDir, agentDir);
+			expect(reloaded.getLanguage()).toBe("zh");
+		});
+
+		it("falls back to English for an unknown persisted value", () => {
+			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ language: "klingon" }));
+			const manager = SettingsManager.create(projectDir, agentDir);
+			expect(manager.getLanguage()).toBe("en");
+		});
+	});
+
 	describe("getShellPath", () => {
 		it("should return undefined when not set", () => {
 			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ theme: "dark" }));

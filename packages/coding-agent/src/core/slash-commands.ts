@@ -30,6 +30,11 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
 		argumentHint: "<level>",
 	},
 	{
+		name: "language",
+		description: "Set UI language",
+		argumentHint: "<en|zh>",
+	},
+	{
 		name: "scoped-models",
 		description: "Enable/disable models for Ctrl+P cycling",
 	},

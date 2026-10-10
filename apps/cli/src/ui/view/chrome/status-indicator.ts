@@ -1,5 +1,5 @@
 import type { WorkingIndicatorOptions } from "@step-harness/coding-agent";
-import { keyText, theme } from "@step-harness/coding-agent";
+import { keyText, t, theme } from "@step-harness/coding-agent";
 import { type Component, Loader, type TUI, truncateToWidth, visibleWidth } from "@step-harness/pi-tui";
 import type { AssistantMessage, AssistantMessageEvent } from "@step-harness/providers";
 import { CountdownTimer } from "../dialogs/countdown-timer.ts";
@@ -95,13 +95,12 @@ export class WorkingOutputTracker {
 }
 
 /**
- * The working row only names real actions: an active tool's verb, "Thinking..."
- * while the model reasons, and a plain "Working..." for the gaps in between.
- * Mood verbs that rotate on a timer were removed — they impersonated actions
- * (a timer-swapped "Reading..." collides with the real one) and made the row
- * read as noise instead of state.
+ * The working row only names real actions: "Thinking..." while the model
+ * reasons, and a plain "Working..." for the gaps in between. Mood verbs that
+ * rotate on a timer were removed — they impersonated actions (a timer-swapped
+ * "Reading..." collides with the real one) and made the row read as noise
+ * instead of state.
  */
-const STEP_WORKING_IDLE_VERB = "Working...";
 const STEP_WORKING_VERB_INTERVAL_MS = 4000;
 
 /**
@@ -265,10 +264,10 @@ export class WorkingStatusIndicator extends StatusIndicator {
 		// Tool completion releases this hold even if the next model request is slow.
 		if (!snapshot.idleVerbAllowed) return;
 		if (snapshot.phase === "thinking") {
-			this.setMessage("Thinking...");
+			this.setMessage(t("status.thinking"));
 			return;
 		}
-		this.setMessage(STEP_WORKING_IDLE_VERB);
+		this.setMessage(t("status.working"));
 	}
 
 	/**
@@ -287,7 +286,7 @@ export class WorkingStatusIndicator extends StatusIndicator {
 
 	override render(width: number): string[] {
 		if (this.waitingForApproval) {
-			const line = truncateToWidth(` ${theme.fg("muted", "Waiting for approval…")}`, width, "", false);
+			const line = truncateToWidth(` ${theme.fg("muted", t("status.waitingForApproval"))}`, width, "", false);
 			return this.presentation === "step" ? [line] : ["", line];
 		}
 		const lines = super.render(width);
@@ -360,10 +359,14 @@ export type CompactionStatusReason = "manual" | "threshold" | "overflow";
 export class CompactionStatusIndicator extends StatusIndicator {
 	constructor(ui: TUI, reason: CompactionStatusReason, presentation: "native" | "step" = "native") {
 		const cancelHint = `(${keyText("app.interrupt")} to cancel)`;
+		// Status labels are captured when the indicator is built; compaction
+		// indicators are short-lived, so they paint in the language active now.
 		const label =
 			reason === "manual"
-				? `Compacting context... ${cancelHint}`
-				: `${reason === "overflow" ? "Context overflow detected, " : ""}Auto-compacting... ${cancelHint}`;
+				? t("status.compactingContext", { hint: cancelHint })
+				: reason === "overflow"
+					? t("status.autoCompactingOverflow", { hint: cancelHint })
+					: t("status.autoCompacting", { hint: cancelHint });
 		super(
 			"compaction",
 			ui,
@@ -383,7 +386,7 @@ export class BranchSummaryStatusIndicator extends StatusIndicator {
 			ui,
 			(spinner) => theme.fg("accent", spinner),
 			(text) => theme.fg("muted", text),
-			`Summarizing branch... (${keyText("app.interrupt")} to cancel)`,
+			t("status.summarizingBranch", { hint: `(${keyText("app.interrupt")} to cancel)` }),
 			undefined,
 			presentation,
 		);
