@@ -217,6 +217,7 @@ Windows paths in JSON must use forward slashes or escaped backslashes:
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `defaultTools` | string[] | - | Built-in tools enabled initially. When omitted, Step uses its standard defaults |
+| `ultracodeDefault` | boolean | `false` | Start every session with ultracode (multi-agent workflow) session mode on. When unset or `false`, each session starts with the mode off |
 
 `defaultTools` selects the built-in tools enabled at startup. Extension and SDK custom tools remain enabled. Available built-ins are `read`, `bash`, `powershell`, `edit`, `write`, `grep`, `find`, and `ls`:
 
@@ -235,6 +236,14 @@ On Windows, select `powershell` instead of `bash`, or include both:
 ```
 
 An empty array starts with no built-in tools while preserving extension and SDK custom tools. `--tools` replaces this behavior with a strict allowlist for all tools, `--no-tools` disables all tools, and `--no-builtin-tools` disables the built-in defaults. `--exclude-tools` filters the resulting list. A project `defaultTools` array replaces the global array.
+
+`ultracodeDefault` decides the state a new session starts in. With the key absent or `false`, every session starts with ultracode session mode off, and only `/ultracode on` (or `/ultraloop on`), or a one-turn `ultracode: <task>` prompt, opts in. With `true`, every new session starts in ultracode session mode; `/ultracode off` still turns the mode off for the running session:
+
+```json
+{
+  "ultracodeDefault": true
+}
+```
 
 ### Sessions
 

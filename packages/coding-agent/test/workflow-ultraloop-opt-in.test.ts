@@ -55,6 +55,11 @@ function install(h: Recorded): void {
 	createUltraloopOptInExtension({ enabled: true, vmExecutor: () => {} })(h.api);
 }
 
+/** Settings accessor stub standing in for the live SettingsManager. */
+function settingsAccessor(ultracodeDefault: boolean | undefined) {
+	return () => ({ getUltracodeDefault: () => ultracodeDefault ?? false });
+}
+
 function makeCtx(
 	notifications: Array<{ message: string; level: string }>,
 	statuses = new Map<string, string>(),
@@ -342,6 +347,69 @@ describe("createUltraloopOptInExtension", () => {
 		// Simulate new session boundary.
 		h.handlers.get("session_start")?.({ type: "session_start" } as never);
 		expect(startOrdinaryTurn(h)?.message?.customType).not.toBe("ultraloop-opt-in");
+	});
+
+	test("session mode starts off when ultracodeDefault is unset", () => {
+		const h = harness();
+		install(h);
+		h.handlers.get("session_start")?.({ type: "session_start" } as never);
+		expect(startOrdinaryTurn(h)?.message?.customType).toBe("ultraloop-discovery");
+		expect(startOrdinaryTurn(h)?.message?.content).toContain("Current session mode: off");
+		expect(h.statuses.has("ultracode")).toBe(false);
+	});
+
+	test("an explicit ultracodeDefault=false keeps the session opted-out", () => {
+		const h = harness();
+		createUltraloopOptInExtension({ enabled: true, vmExecutor: () => {}, settings: settingsAccessor(false) })(h.api);
+		h.handlers.get("session_start")?.({ type: "session_start" } as never);
+		expect(startOrdinaryTurn(h)?.message?.customType).not.toBe("ultraloop-opt-in");
+		expect(h.statuses.has("ultracode")).toBe(false);
+	});
+
+	test("ultracodeDefault=true starts the session in ultracode mode", () => {
+		const h = harness();
+		createUltraloopOptInExtension({ enabled: true, vmExecutor: () => {}, settings: settingsAccessor(true) })(h.api);
+		h.handlers.get("session_start")?.({ type: "session_start" } as never);
+
+		expect(h.statuses.get("ultracode")).toBe("Ultracode on");
+		const first = h.handlers.get("before_agent_start")?.({
+			type: "before_agent_start",
+			prompt: "explain the available features",
+		} as never) as { message?: { customType: string; content: string; details: unknown } };
+		expect(first?.message?.customType).toBe("ultraloop-opt-in");
+		expect(first?.message?.content).toContain("Ultraloop is on for the session");
+		expect(first?.message?.details).toEqual({ source: "session" });
+
+		// Session mode also counts as consent, so nothing is journaled off-consent.
+		h.handlers.get("tool_call")?.({
+			type: "tool_call",
+			toolName: "workflow",
+			toolCallId: "call-default",
+			input: {},
+		} as never);
+		expect(h.entries).toEqual([]);
+	});
+
+	test("/ultracode off after a configured start still disables the session", () => {
+		const h = harness();
+		createUltraloopOptInExtension({ enabled: true, vmExecutor: () => {}, settings: settingsAccessor(true) })(h.api);
+		h.handlers.get("session_start")?.({ type: "session_start" } as never);
+
+		void h.commands.get("ultracode")?.handler("off", makeCtx(h.notifications, h.statuses));
+		expect(h.notifications.at(-1)?.message).toContain("Ultracode session mode is off");
+		expect(h.statuses.has("ultracode")).toBe(false);
+		expect(startOrdinaryTurn(h)?.message?.customType).not.toBe("ultraloop-opt-in");
+
+		// One-turn opt-in still works after the session override.
+		const kept = h.handlers.get("before_agent_start")?.({
+			type: "before_agent_start",
+			prompt: "ultraloop: audit",
+		} as never) as { message?: { details: unknown } };
+		expect(kept?.message?.details).toEqual({ source: "turn", token: "ultraloop" });
+
+		// The next session boundary re-seeds the configured default.
+		h.handlers.get("session_start")?.({ type: "session_start" } as never);
+		expect(startOrdinaryTurn(h)?.message?.customType).toBe("ultraloop-opt-in");
 	});
 
 	test("unknown /ultraloop arg surfaces a usage warning", () => {

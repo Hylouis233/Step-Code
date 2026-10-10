@@ -1,6 +1,7 @@
 /** Step's built-in clarification, plan, task-tracking, and delegated-agent extensions. */
 
 import type { ExtensionAPI, ExtensionFactory, InlineExtension } from "../core/extensions/types.ts";
+import type { SettingsManager } from "../core/settings-manager.ts";
 import type { StepTelemetryReporter } from "../step/telemetry.ts";
 import { createStepPlanExtension } from "./step-plan.ts";
 import { registerStepClarifyUserExtension } from "./step-questionnaire.ts";
@@ -16,6 +17,8 @@ export interface StepCapabilitiesExtensionOptions {
 	telemetry?: StepTelemetryReporter;
 	/** Workflow registers by default (Claude Code parity); `enabled: false` or STEP_DISABLE_WORKFLOW=1 turns it off. */
 	workflow?: StepWorkflowExtensionOptions;
+	/** Optional accessor for the live settings manager; seeds ultracode session mode from `ultracodeDefault`. */
+	stepSettings?: () => Pick<SettingsManager, "getUltracodeDefault"> | undefined;
 }
 
 /** Compose Pi's native UI examples behind one Step-owned inline extension. */
@@ -36,6 +39,7 @@ export function createStepCapabilitiesExtension(options: StepCapabilitiesExtensi
 		enabled: options.workflow?.enabled,
 		vmExecutor: options.workflow?.vmExecutor,
 		turnState: workflowTurnState,
+		settings: options.stepSettings,
 	});
 	return (pi: ExtensionAPI): void => {
 		registerWorkflowChildAcl(pi, options.telemetry);

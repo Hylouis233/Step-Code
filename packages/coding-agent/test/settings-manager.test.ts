@@ -377,6 +377,17 @@ describe("SettingsManager", () => {
 		});
 	});
 
+	describe("ultracodeDefault", () => {
+		it("defaults to false when unset", () => {
+			expect(SettingsManager.inMemory().getUltracodeDefault()).toBe(false);
+		});
+
+		it("reads the configured value", () => {
+			expect(SettingsManager.inMemory({ ultracodeDefault: true }).getUltracodeDefault()).toBe(true);
+			expect(SettingsManager.inMemory({ ultracodeDefault: false }).getUltracodeDefault()).toBe(false);
+		});
+	});
+
 	describe("externalEditor", () => {
 		const originalVisual = process.env.VISUAL;
 		const originalEditor = process.env.EDITOR;

@@ -98,6 +98,7 @@ export interface Settings {
 	defaultProvider?: string;
 	defaultModel?: string;
 	defaultThinkingLevel?: ThinkingLevel;
+	ultracodeDefault?: boolean; // default: false - start every session with ultracode (multi-agent workflow) session mode on
 	modelThinkingLevels?: Record<string, ThinkingLevel>; // per-model default thinking level overrides keyed by "provider/modelId"
 	transport?: TransportSetting; // default: "auto"
 	steeringMode?: "all" | "one-at-a-time";
@@ -798,6 +799,15 @@ export class SettingsManager {
 		this.globalSettings.defaultThinkingLevel = level;
 		this.markModified("defaultThinkingLevel");
 		this.save();
+	}
+
+	/**
+	 * Whether a new session starts with ultracode session mode already on.
+	 * Unset means false, which keeps every session opted-out until the user
+	 * runs `/ultracode on` (or sends a one-turn opt-in).
+	 */
+	getUltracodeDefault(): boolean {
+		return this.settings.ultracodeDefault ?? false;
 	}
 
 	getModelThinkingLevel(provider: string, modelId: string): ThinkingLevel | undefined {
