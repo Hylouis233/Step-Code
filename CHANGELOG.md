@@ -8,6 +8,8 @@
 
 ### Fixed
 
+- Stop flooding startup with `[Skill conflicts]` when the same skills are installed in both `~/.agents/skills` and `~/.claude/skills`. Byte-identical copies are now skipped silently, and remaining name collisions collapse to one summary line per directory pair; `--verbose` still lists each one.
+
 - Stop appending Ultracode capability tutorials on every turn. Announce session-mode transitions after user input, reuse unchanged state, and restore necessary reminders when context is compacted or replaced.
 - Recognize `/exit` as an alias for `/quit`, including while the agent is running or compacting.
 - Recognize `search_files`, `find_files`, and `list_directory` when selecting default system-prompt file-exploration guidance.
