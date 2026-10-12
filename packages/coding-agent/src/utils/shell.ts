@@ -168,7 +168,7 @@ export function getShellEnv(agentDir?: string): NodeJS.ProcessEnv {
 }
 
 /** Add Git's own tools for non-login Bash without loading user startup scripts. */
-function withGitBashPath(shell: string, env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+export function withGitBashPath(shell: string, env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 	if (process.platform !== "win32" || win32.basename(shell).toLowerCase() !== "bash.exe") return env;
 	let root = win32.dirname(win32.dirname(shell));
 	if (win32.basename(root).toLowerCase() === "usr") root = win32.dirname(root);
