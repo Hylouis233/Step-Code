@@ -8,6 +8,7 @@ import { StreamableHTTPClientTransport, StreamableHTTPError } from "@modelcontex
 import { type Tool as McpTool, ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { AgentToolResult } from "@step-harness/agent-core";
 import type { ExtensionAPI, ExtensionFactory } from "../core/extensions/types.ts";
+import { createTranslator, getActiveLanguage, type Language, t } from "../i18n/index.ts";
 import { theme } from "../theme/theme.ts";
 import { readGlobalStepConfig } from "./config-toml.ts";
 import { createMcpToolCaller, listAllMcpTools } from "./mcp-client.ts";
@@ -238,7 +239,7 @@ export function createStepMcpExtension(): ExtensionFactory {
 			})().catch((error: unknown) => {
 				if (!controller.signal.aborted)
 					ctx.ui.notify(
-						`MCP discovery failed: ${error instanceof Error ? error.message : String(error)}`,
+						t("mcp.discoveryFailed", { error: error instanceof Error ? error.message : String(error) }),
 						"warning",
 					);
 			});
@@ -667,8 +668,11 @@ export function describeMcpStartFailure(input: {
 	provision?: StepPluginProvision;
 	error: unknown;
 	env?: NodeJS.ProcessEnv;
+	/** UI language for the static parts of the message; defaults to the active language. */
+	language?: Language;
 }): string {
 	const detail = input.error instanceof Error ? input.error.message : String(input.error);
+	const translate = createTranslator(input.language ?? getActiveLanguage());
 	if (
 		input.error instanceof UnauthorizedError ||
 		(input.error instanceof StreamableHTTPError && input.error.code === 401)
@@ -678,12 +682,14 @@ export function describeMcpStartFailure(input: {
 		// plugin servers are namespaced, and `login` accepts either spelling.
 		const bare = bareServerName(input.name);
 		const quoted = /^[\w.-]+$/u.test(bare) ? bare : `'${bare.replace(/'/gu, "'\\''")}'`;
-		return `MCP server '${input.name}' could not start: ${detail}\nAuthenticate with: step mcp login ${quoted}, then restart Step.`;
+		return translate("mcp.couldNotStartAuth", { name: input.name, detail, server: quoted });
 	}
-	if (!isMissingExecutable(input.error)) return `MCP server '${input.name}' could not start: ${detail}`;
+	if (!isMissingExecutable(input.error)) return translate("mcp.couldNotStart", { name: input.name, detail });
 	const install = input.provision ? provisionInstallCommand(input.provision, input.env ?? process.env) : undefined;
-	const remedy = install ? `Install it with: ${install}, then restart Step.` : "Install it, then restart Step.";
-	return `MCP server '${input.name}' could not start: '${input.command}' is not installed or not on PATH. ${remedy}`;
+	const remedy = install
+		? translate("mcp.remedyInstall", { command: install })
+		: translate("mcp.remedyInstallGeneric");
+	return translate("mcp.couldNotStartMissingExecutable", { name: input.name, command: input.command, remedy });
 }
 
 /** A spawn that failed because the executable is absent, rather than because the server misbehaved. */

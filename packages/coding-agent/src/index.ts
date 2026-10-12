@@ -493,6 +493,25 @@ export {
 // registration time, while the pure runtime contracts are useful to embedders
 // and tests.
 export * from "./features/workflow/index.ts";
+// UI language selection (settings `language`, `/language` command, static chrome text)
+export {
+	createTranslator,
+	DEFAULT_LANGUAGE,
+	en,
+	getActiveLanguage,
+	isLanguage,
+	LANGUAGES,
+	type Language,
+	languageName,
+	MESSAGES,
+	type MessageKey,
+	type MessageParams,
+	normalizeLanguage,
+	setActiveLanguage,
+	t,
+	translate,
+	zh,
+} from "./i18n/index.ts";
 // Main entry point
 export {
 	type MainOptions,
