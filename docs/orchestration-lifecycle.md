@@ -24,7 +24,10 @@ capability is registered, use these commands in the interactive editor:
 `help`, and share one state in the workflow extension. Bare commands, `help`,
 and `status` leave that state unchanged. Enabling session mode projects
 `Ultracode on` into the status line; disabling it or crossing a session boundary
-clears the projection. The UI reads this state from the extension.
+clears the projection. The latest on/off choice is stored in the current session
+journal, so reopening that session restores it; a new session without saved mode
+state starts off. This state is not written to global or project settings. The UI
+reads it from the extension.
 
 For one turn, send `ultracode: <task>` or `ultraloop: <task>` in the TUI, or pass
 it as a launch prompt, for example:
@@ -65,7 +68,7 @@ A product run may contain multiple low-level attempts because of retries or
 context compaction. The opt-in and prompt budget survive those attempts and
 clear at `agent_settled`. The next submitted prompt replaces the prompt-specific
 state. Session mode survives settlement until `/ultracode off` (or
-`/ultraloop off`) or a session boundary, when it resets to off.
+`/ultraloop off`) or a new session with no saved mode state.
 
 The runtime checks cancellation before entering the VM and after it returns.
 A tool call whose signal was already aborted does not start a child agent.

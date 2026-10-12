@@ -46,6 +46,7 @@ function harness(): Recorded {
 		},
 		appendEntry: (customType: string, data?: unknown) => {
 			entries.push({ customType, data });
+			contextEntries.push({ type: "custom", customType, data });
 		},
 		getActiveTools: () => [...activeTools],
 		sendMessage: () => {},
@@ -77,6 +78,10 @@ function makeCtx(
 		},
 		sessionManager: {
 			getEntries: () => contextEntries,
+			appendCustomEntry: (customType: string, data?: unknown) => {
+				contextEntries.push({ type: "custom", customType, data });
+				return "test-entry";
+			},
 			buildContextEntries: () => contextEntries,
 			getSessionId: () => "test",
 		},
@@ -387,7 +392,10 @@ describe("createUltraloopOptInExtension", () => {
 		const revoked = context({ messages: restored.messages } as never) as { messages: unknown[] };
 		expect(revoked.messages.at(-1)).toMatchObject({ details: { source: "session", sessionMode: false } });
 		expect(context({ messages: revoked.messages } as never)).toBeUndefined();
-		expect(h.contextEntries).toEqual([]);
+		expect(h.contextEntries).toEqual([
+			{ type: "custom", customType: "ultraloop-session-mode", data: { enabled: true } },
+			{ type: "custom", customType: "ultraloop-session-mode", data: { enabled: false } },
+		]);
 	});
 
 	test("/ultraloop status reports the current mode without changing it", () => {
@@ -414,16 +422,32 @@ describe("createUltraloopOptInExtension", () => {
 			toolCallId: "call-session",
 			input: {},
 		} as never);
-		expect(h.entries).toEqual([]);
+		expect(h.entries).toEqual([{ customType: "ultraloop-session-mode", data: { enabled: true } }]);
 	});
 
-	test("session_start resets session-standing mode", () => {
+	test("session_start restores the latest mode from the current session journal", async () => {
 		const h = harness();
 		install(h);
-		void h.commands.get("ultraloop")?.handler("on", makeCtx(h.notifications));
-		// Simulate new session boundary.
+		await h.commands.get("ultraloop")?.handler("on", makeCtx(h.notifications, h.statuses, h.contextEntries));
 		h.handlers.get("session_start")?.({ type: "session_start" } as never);
+		expect(h.statuses.get("ultracode")).toBe("Ultracode on");
+		expect(startOrdinaryTurn(h)?.message?.content).toContain("Ultraloop is on for the session");
+
+		await h.commands.get("ultraloop")?.handler("off", makeCtx(h.notifications, h.statuses, h.contextEntries));
+		h.handlers.get("session_start")?.({ type: "session_start" } as never);
+		expect(h.statuses.has("ultracode")).toBe(false);
 		expect(startOrdinaryTurn(h)?.message?.customType).not.toBe("ultraloop-opt-in");
+	});
+
+	test("does not persist mode in settings or leak it to a new session", async () => {
+		const h = harness();
+		install(h);
+		await h.commands.get("ultracode")?.handler("on", makeCtx(h.notifications, h.statuses, h.contextEntries));
+		expect(h.entries).toEqual([{ customType: "ultraloop-session-mode", data: { enabled: true } }]);
+		const fresh = harness();
+		install(fresh);
+		fresh.handlers.get("session_start")?.({ type: "session_start" } as never);
+		expect(startOrdinaryTurn(fresh)?.message?.customType).not.toBe("ultraloop-opt-in");
 	});
 
 	test("unknown /ultraloop arg surfaces a usage warning", () => {
@@ -533,11 +557,11 @@ describe("Ultracode discovery and command aliases", () => {
 		expect(startOrdinaryTurn(h)?.message?.customType).not.toBe("ultraloop-opt-in");
 	});
 
-	test("projects enabled mode and clears it on disable and session reset", async () => {
+	test("projects enabled mode and restores it on session reset", async () => {
 		const h = harness();
 		install(h);
 		const command = h.commands.get("ultraloop")!;
-		const ctx = makeCtx(h.notifications, h.statuses);
+		const ctx = makeCtx(h.notifications, h.statuses, h.contextEntries);
 		await command.handler("on", ctx);
 		expect(h.statuses.get("ultracode")).toBe("Ultracode on");
 		await command.handler("help", ctx);
@@ -546,8 +570,8 @@ describe("Ultracode discovery and command aliases", () => {
 		expect(h.statuses.has("ultracode")).toBe(false);
 		await command.handler("on", ctx);
 		h.handlers.get("session_start")?.({ type: "session_start" } as never, ctx);
-		expect(h.statuses.has("ultracode")).toBe(false);
-		expect(startOrdinaryTurn(h)?.message?.customType).not.toBe("ultraloop-opt-in");
+		expect(h.statuses.get("ultracode")).toBe("Ultracode on");
+		expect(startOrdinaryTurn(h)?.message?.content).toContain("Ultraloop is on for the session");
 	});
 
 	test("ordinary turns do not inject capability tutorials or grant consent", () => {
