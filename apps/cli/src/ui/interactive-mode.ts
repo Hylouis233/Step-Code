@@ -4791,8 +4791,8 @@ export class InteractiveMode {
 
 	/**
 	 * `/language` with no argument reports the current language and usage; with
-	 * `en`/`zh` it persists the choice and confirms in the newly selected
-	 * language, so the confirmation doubles as proof the switch took effect.
+	 * `en`/`zh` it persists the global choice and reports the effective language,
+	 * which may still be overridden by trusted project settings.
 	 */
 	handleLanguageCommand(searchTerm?: string): void {
 		const current = this.settingsManager.getLanguage();
@@ -4813,7 +4813,17 @@ export class InteractiveMode {
 		// Chrome text (welcome block, footer, status row, tips) is read from the
 		// active language at render time, so one render repaints everything.
 		this.redraw.requestRender();
-		this.showStatus(t("language.switched", { language: languageName(normalized), code: normalized }));
+		const effective = this.settingsManager.getLanguage();
+		this.showStatus(
+			effective === normalized
+				? t("language.switched", { language: languageName(effective), code: effective })
+				: t("language.overridden", {
+						language: languageName(normalized),
+						code: normalized,
+						effectiveLanguage: languageName(effective),
+						effectiveCode: effective,
+					}),
+		);
 	}
 
 	private selectThinkingLevel(level: ThinkingLevel): void {

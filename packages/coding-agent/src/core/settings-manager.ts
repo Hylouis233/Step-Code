@@ -567,6 +567,7 @@ export class SettingsManager {
 	/** Apply additional overrides on top of current settings */
 	applyOverrides(overrides: Partial<Settings>): void {
 		this.settings = deepMergeSettings(this.settings, overrides);
+		this.syncActiveLanguage();
 	}
 
 	/**
@@ -677,6 +678,7 @@ export class SettingsManager {
 
 	private save(): void {
 		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.syncActiveLanguage();
 
 		if (this.globalSettingsLoadError) {
 			return;
@@ -695,6 +697,7 @@ export class SettingsManager {
 		this.assertProjectTrustedForWrite();
 		this.projectSettings = structuredClone(settings);
 		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.syncActiveLanguage();
 
 		if (this.projectSettingsLoadError) {
 			return;
@@ -826,9 +829,6 @@ export class SettingsManager {
 		this.globalSettings.language = normalized;
 		this.markModified("language");
 		this.save();
-		// Keep the module-level cell in step so startup warnings and chrome text
-		// emitted before the next render pick the new language immediately.
-		setActiveLanguage(normalized);
 	}
 
 	getModelThinkingLevel(provider: string, modelId: string): ThinkingLevel | undefined {

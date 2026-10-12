@@ -34,6 +34,8 @@ export const en = {
 	"language.current": "UI language: {language} ({code})",
 	"language.usage": "Usage: /language <en|zh>",
 	"language.switched": "UI language set to {language} ({code}).",
+	"language.overridden":
+		"Global UI language set to {language} ({code}). Project settings keep the UI language at {effectiveLanguage} ({effectiveCode}).",
 	"language.unknown": 'Unknown language "{value}". Available languages: {available}.',
 
 	// Welcome block.
@@ -99,6 +101,8 @@ export const zh: Record<MessageKey, string> = {
 	"language.current": "界面语言：{language}（{code}）",
 	"language.usage": "用法：/language <en|zh>",
 	"language.switched": "界面语言已切换为{language}（{code}）。",
+	"language.overridden":
+		"全局界面语言已设为{language}（{code}）。项目设置使界面语言保持为{effectiveLanguage}（{effectiveCode}）。",
 	"language.unknown": "未知语言“{value}”。可用语言：{available}。",
 
 	// 欢迎区块
