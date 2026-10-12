@@ -1,4 +1,4 @@
-import { parse } from "yaml";
+import { isMap, isScalar, parse, parseDocument } from "yaml";
 import { stripBom } from "./text.ts";
 
 type ParsedFrontmatter<T extends Record<string, unknown>> = {
@@ -63,9 +63,12 @@ const YAML_TO_FILE_LINE_OFFSET = 1;
  */
 export function describeFrontmatterError(error: unknown): FrontmatterErrorDetails {
 	const message = error instanceof Error ? error.message : String(error);
-	const [headline] = message.split("\n");
+	const headline = (message.split("\n")[0] ?? "").replace(
+		/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g,
+		(character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`,
+	);
 	const location = /^(.*?)\s+at line (\d+), column (\d+)/.exec(headline ?? "");
-	const position = (error as { linePos?: Array<{ line?: number; col?: number }> }).linePos?.[0];
+	const position = (error as { linePos?: Array<{ line?: number; col?: number }> })?.linePos?.[0];
 	const line = position?.line ?? (location ? Number(location[2]) : undefined);
 	const column = position?.col ?? (location ? Number(location[3]) : undefined);
 	const reason = (location?.[1] ?? headline ?? "").trim() || "invalid YAML";
@@ -77,42 +80,24 @@ export function describeFrontmatterError(error: unknown): FrontmatterErrorDetail
 	};
 }
 
-/** A plain scalar cannot contain ": ", so its presence means the value needs quoting. */
-const hasUnquotedColonSeparator = (value: string): boolean => /:(\s|$)/.test(value);
-
-/** Drop a trailing `#` comment; `#` only starts a comment after whitespace. */
-const stripTrailingComment = (value: string): string => value.replace(/\s+#.*$/, "");
-
-/**
- * Detect the classic frontmatter mistake of an unquoted `": "` inside the description scalar,
- * which `yaml` rejects as a nested mapping.
- */
+/** Detect a rejected compact mapping in the top-level description value. */
 export function hasUnquotedColonInDescription(content: string): boolean {
 	const { yamlString } = extractFrontmatter(content);
 	if (!yamlString) return false;
 
-	const lines = yamlString.split("\n");
-	for (let index = 0; index < lines.length; index++) {
-		const key = /^([ \t]*)description[ \t]*:[ \t]*(.*)$/.exec(lines[index]);
-		if (!key) continue;
-
-		const value = stripTrailingComment(key[2]);
-		// Quoted, flow and block scalars may legally contain ": ".
-		if (value === "" || /^[|>&*"'[\]{}]/.test(value)) continue;
-		if (hasUnquotedColonSeparator(value)) return true;
-
-		// A plain scalar may continue on more deeply indented lines.
-		const indent = key[1].length;
-		for (let next = index + 1; next < lines.length; next++) {
-			const line = lines[next];
-			if (line.trim() === "") continue;
-			const lineIndent = /^[ \t]*/.exec(line)?.[0].length ?? 0;
-			if (lineIndent <= indent) break;
-			if (hasUnquotedColonSeparator(stripTrailingComment(line))) return true;
-		}
-	}
-
-	return false;
+	// Inspect the parser's recovered tree so comments, quoted strings and block scalar
+	// contents cannot be mistaken for description keys.
+	const document = parseDocument(yamlString);
+	if (!isMap(document.contents)) return false;
+	return document.contents.items.some(({ key, value }) => {
+		if (!isScalar(key) || key.value !== "description" || !isMap(value)) return false;
+		const start = value.range?.[0];
+		const keyEnd = key.range?.[1];
+		if (start === undefined || keyEnd === undefined) return false;
+		// A normal nested mapping on the next line is not an unquoted description.
+		if (yamlString.slice(keyEnd, start).includes("\n")) return false;
+		return document.errors.some((error) => error.code === "BLOCK_AS_IMPLICIT_KEY" && error.pos[0] === start);
+	});
 }
 
 /**
