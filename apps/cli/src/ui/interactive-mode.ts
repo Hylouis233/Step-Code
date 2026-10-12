@@ -1953,8 +1953,19 @@ export class InteractiveMode {
 		for (const d of otherDiagnostics) {
 			if (d.path) {
 				const formattedPath = this.formatPathWithSource(d.path, this.findSourceInfoForPath(d.path, sourceInfos));
-				lines.push(theme.fg(d.type === "error" ? "error" : "warning", `  ${formattedPath}`));
-				lines.push(theme.fg(d.type === "error" ? "error" : "warning", `    ${d.message}`));
+				// Some diagnostics (e.g. skill frontmatter errors) already name their file so they stay
+				// readable outside this list; don't print the path twice.
+				if (d.message.startsWith(d.path)) {
+					lines.push(
+						theme.fg(
+							d.type === "error" ? "error" : "warning",
+							`  ${formattedPath}${d.message.slice(d.path.length)}`,
+						),
+					);
+				} else {
+					lines.push(theme.fg(d.type === "error" ? "error" : "warning", `  ${formattedPath}`));
+					lines.push(theme.fg(d.type === "error" ? "error" : "warning", `    ${d.message}`));
+				}
 			} else {
 				lines.push(theme.fg(d.type === "error" ? "error" : "warning", `  ${d.message}`));
 			}
