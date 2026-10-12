@@ -11,7 +11,8 @@
  *      default workflow budget.
  *
  *   2) session-standing mode: the user turns on ultraloop for the whole
- *      session via /ultraloop on. A session-scoped system-reminder is
+ *      session via /ultraloop on, or the session starts in it because the
+ *      `ultracodeDefault` setting is true. A session-scoped system-reminder is
  *      attached to every subsequent turn until /ultraloop off, or the
  *      session ends. Mirrors Claude Code's "Ultracode is on for the session"
  *      opt-in.
@@ -23,6 +24,7 @@
  */
 
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionFactory } from "../../core/extensions/types.ts";
+import type { SettingsManager } from "../../core/settings-manager.ts";
 import { isWorkflowRegistrationEnabled } from "./registration-gate.ts";
 
 // "ultracode" is Claude Code's name for the same opt-in; users switching
@@ -105,6 +107,12 @@ export interface UltraloopOptInExtensionOptions {
 	vmExecutor?: unknown;
 	/** Written each turn with the parsed "+500k" target (or undefined). */
 	turnState?: UltraloopTurnState;
+	/**
+	 * Live settings accessor. Session mode is re-seeded from the
+	 * `ultracodeDefault` setting at every session boundary; omit it to keep
+	 * every session opted-out until `/ultracode on`.
+	 */
+	settings?: () => Pick<SettingsManager, "getUltracodeDefault"> | undefined;
 }
 
 /**
@@ -122,12 +130,13 @@ export function createUltraloopOptInExtension(options: UltraloopOptInExtensionOp
 			if (options.turnState) options.turnState.budgetTotal = value;
 		};
 
-		// Session boundary resets standing mode; each new session starts opted-out.
+		// Session boundary re-seeds standing mode from settings: each session
+		// starts opted-out unless `ultracodeDefault` turns the mode on.
 		pi.on("session_start", (_event, ctx) => {
-			sessionMode = false;
+			sessionMode = options.settings?.()?.getUltracodeDefault() === true;
 			optedInThisTurn = false;
 			setTurnBudget(undefined);
-			ctx.ui.setStatus("ultracode", undefined);
+			ctx.ui.setStatus("ultracode", sessionMode ? "Ultracode on" : undefined);
 		});
 
 		// Fires after the user submits a prompt, before the agent loop; the returned
