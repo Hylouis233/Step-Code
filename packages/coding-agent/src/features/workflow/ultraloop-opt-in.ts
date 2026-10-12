@@ -22,7 +22,14 @@
  */
 
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionFactory } from "../../core/extensions/types.ts";
+import type { SessionEntry } from "../../core/session-manager.ts";
 import { isWorkflowRegistrationEnabled } from "./registration-gate.ts";
+
+const ULTRALOOP_SESSION_MODE_ENTRY = "ultraloop-session-mode";
+
+interface UltraloopSessionModeData {
+	enabled: boolean;
+}
 
 // "ultracode" is Claude Code's name for the same opt-in; users switching
 // between the two products type it interchangeably, so both spellings grant
@@ -104,6 +111,18 @@ function lastSessionMode(records: readonly ReminderRecord[]): boolean | undefine
 	return undefined;
 }
 
+function persistedSessionMode(entries: readonly SessionEntry[]): boolean | undefined {
+	for (let index = entries.length - 1; index >= 0; index--) {
+		const entry = entries[index]!;
+		if (entry.type !== "custom" || entry.customType !== ULTRALOOP_SESSION_MODE_ENTRY) continue;
+		const data = entry.data;
+		if (typeof data === "object" && data !== null && "enabled" in data && typeof data.enabled === "boolean") {
+			return data.enabled;
+		}
+	}
+	return undefined;
+}
+
 function sessionModeReminder(sessionMode: boolean, previous: boolean | undefined) {
 	if (sessionMode ? previous === true : previous !== true) return undefined;
 	const content = sessionMode ? buildUltraloopSessionReminder() : buildUltraloopSessionOffReminder();
@@ -151,12 +170,13 @@ export function createUltraloopOptInExtension(options: UltraloopOptInExtensionOp
 			if (options.turnState) options.turnState.budgetTotal = value;
 		};
 
-		// Session boundary resets standing mode; each new session starts opted-out.
+		// Session boundaries restore only the latest mode entry from this session;
+		// sessions without a saved mode start opted-out.
 		pi.on("session_start", (_event, ctx) => {
-			sessionMode = false;
+			sessionMode = persistedSessionMode(ctx.sessionManager.getEntries()) ?? false;
 			optedInThisTurn = false;
 			setTurnBudget(undefined);
-			ctx.ui.setStatus("ultracode", undefined);
+			ctx.ui.setStatus("ultracode", sessionMode ? "Ultracode on" : undefined);
 		});
 
 		// BeforeAgentStartEventResult.message is appended after the real user input
@@ -228,6 +248,9 @@ export function createUltraloopOptInExtension(options: UltraloopOptInExtensionOp
 				const token = args.trim().toLowerCase();
 				if (token === "on") {
 					sessionMode = true;
+					pi.appendEntry(ULTRALOOP_SESSION_MODE_ENTRY, {
+						enabled: true,
+					} satisfies UltraloopSessionModeData);
 					ctx.ui.setStatus("ultracode", "Ultracode on");
 					ctx.ui.notify(
 						"Ultracode is on for the session. Multi-agent workflows are authorized until /ultracode off or the session ends.",
@@ -237,6 +260,9 @@ export function createUltraloopOptInExtension(options: UltraloopOptInExtensionOp
 				}
 				if (token === "off") {
 					sessionMode = false;
+					pi.appendEntry(ULTRALOOP_SESSION_MODE_ENTRY, {
+						enabled: false,
+					} satisfies UltraloopSessionModeData);
 					ctx.ui.setStatus("ultracode", undefined);
 					ctx.ui.notify("Ultracode session mode is off. Use ultracode: <task> for one-turn opt-in.", "info");
 					return;
