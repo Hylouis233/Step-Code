@@ -366,6 +366,40 @@ describe("createUltraloopOptInExtension", () => {
 		expect(h.statuses.has("ultracode")).toBe(false);
 	});
 
+	test.each(["false", "true", 1, {}, []])("malformed accessor value %j never grants session consent", (value) => {
+		const h = harness();
+		createUltraloopOptInExtension({
+			enabled: true,
+			settings: () => ({ getUltracodeDefault: () => value as unknown as boolean }),
+		})(h.api);
+		h.handlers.get("session_start")?.({ type: "session_start" } as never);
+		expect(h.statuses.has("ultracode")).toBe(false);
+		expect(startOrdinaryTurn(h)?.message?.customType).toBe("ultraloop-discovery");
+		h.handlers.get("tool_call")?.({ toolName: "workflow", toolCallId: "invalid-default" } as never);
+		expect(h.entries).toEqual([
+			{ customType: "ultraloop-opt-in", data: { offConsentCall: true, toolCallId: "invalid-default" } },
+		]);
+	});
+
+	test("reads the live default only at a session boundary", async () => {
+		const h = harness();
+		let configuredDefault = true;
+		createUltraloopOptInExtension({
+			settings: () => ({ getUltracodeDefault: () => configuredDefault }),
+		})(h.api);
+		h.handlers.get("session_start")?.({ type: "session_start" } as never);
+		await h.commands.get("ultracode")?.handler("off", makeCtx(h.notifications, h.statuses));
+		h.handlers.get("agent_settled")?.({ type: "agent_settled" } as never);
+		expect(startOrdinaryTurn(h)?.message?.customType).toBe("ultraloop-discovery");
+		configuredDefault = false;
+		h.handlers.get("session_start")?.({ type: "session_start" } as never);
+		expect(startOrdinaryTurn(h)?.message?.customType).toBe("ultraloop-discovery");
+		configuredDefault = true;
+		expect(startOrdinaryTurn(h)?.message?.customType).toBe("ultraloop-discovery");
+		h.handlers.get("session_start")?.({ type: "session_start" } as never);
+		expect(startOrdinaryTurn(h)?.message?.customType).toBe("ultraloop-opt-in");
+	});
+
 	test("ultracodeDefault=true starts the session in ultracode mode", () => {
 		const h = harness();
 		createUltraloopOptInExtension({ enabled: true, vmExecutor: () => {}, settings: settingsAccessor(true) })(h.api);

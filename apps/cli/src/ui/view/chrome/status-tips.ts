@@ -6,32 +6,36 @@
  * status without inferring user intent.
  */
 
-import { keyText, type StepGoalStatus } from "@step-harness/coding-agent";
+import { keyText, type StepGoalStatus, t } from "@step-harness/coding-agent";
 
+/**
+ * Rebuilt per call so the pool follows the active UI language instead of being
+ * frozen at module load.
+ */
 export function buildStatusTips(goalStatus?: StepGoalStatus): string[] {
 	const general = [
-		"Use /theme to switch themes (step-blue / step-violet)",
-		"Use /model to switch models",
-		`Press ${keyText("app.tools.expand")} to expand tool output`,
-		"Type @ to autocomplete file paths",
-		"Press Enter while working to queue a message",
+		t("statusTip.theme"),
+		t("statusTip.model"),
+		t("statusTip.expandToolOutput", { key: keyText("app.tools.expand") }),
+		t("statusTip.autocompletePaths"),
+		t("statusTip.queueWhileWorking"),
 	];
 	if (goalStatus === "active") {
 		const commands = [
-			"Use /goal status to inspect progress and usage",
-			"Use /goal pause to pause; /goal resume continues it",
-			"Use /goal edit to revise the current objective",
-			"Use /goal clear to end the current goal",
+			t("statusTip.goalStatus"),
+			t("statusTip.goalPause"),
+			t("statusTip.goalEdit"),
+			t("statusTip.goalClear"),
 		];
 		return general.flatMap((tip) => [...commands, tip]);
 	}
 	if (goalStatus === "paused" || goalStatus === "blocked" || goalStatus === "usage_limited") {
-		return general.flatMap((tip) => ["Use /goal resume to continue the current goal", tip]);
+		return general.flatMap((tip) => [t("statusTip.goalResume"), tip]);
 	}
 	if (goalStatus === "budget_limited") {
-		return ["Use /goal edit to revise the goal, or /goal clear to drop it", ...general];
+		return [t("statusTip.goalEditOrClear"), ...general];
 	}
-	return [...general, "Use /goal to set a long-running task and keep working across turns"];
+	return [...general, t("statusTip.goalStart")];
 }
 
 /**

@@ -1,4 +1,4 @@
-import { theme } from "@step-harness/coding-agent";
+import { t, theme } from "@step-harness/coding-agent";
 import { type Component, truncateToWidth, visibleWidth } from "@step-harness/pi-tui";
 import { formatCwdForFooter } from "./footer.ts";
 import {
@@ -51,21 +51,25 @@ const STRIP_MIN_INNER = stripCompositionWidth() + 4;
 
 const easeOutCubic = (p: number): number => 1 - (1 - p) ** 3;
 const WELCOME_MARK_MIN_TEXT_WIDTH = 32;
-const FIRST_SESSION_HINT = "Your first message will start a new session.";
-const WELCOME_TIPS = [
-	{
-		command: "/cron",
-		description: "View and manage scheduled tasks.",
-	},
-	{
-		command: "/goal",
-		description: "Set a goal and keep working toward it across turns.",
-	},
-] as const;
-const ULTRACODE_TIP = {
-	command: "/ultracode on",
-	description: "Use parallel agents for this session. One turn: ultracode: task.",
-} as const;
+/**
+ * The welcome block is rebuilt on every render, so the tips read the active
+ * language at paint time rather than being captured at module load.
+ */
+interface WelcomeTip {
+	command: string;
+	description: string;
+}
+
+function buildWelcomeTips(): WelcomeTip[] {
+	return [
+		{ command: "/cron", description: t("welcome.tip.cron") },
+		{ command: "/goal", description: t("welcome.tip.goal") },
+	];
+}
+
+function buildUltracodeTip(): WelcomeTip {
+	return { command: "/ultracode on", description: t("welcome.tip.ultracode") };
+}
 
 const graphemeSegmenter = new Intl.Segmenter(undefined, {
 	granularity: "grapheme",
@@ -300,7 +304,7 @@ export class StepWelcomeComponent implements Component {
 
 		if (info !== undefined) {
 			const sessionId = info.sessionId?.trim();
-			const model = info.model?.trim() || "unknown model";
+			const model = info.model?.trim() || t("welcome.unknownModel");
 			const thinkingLevel = info.thinkingLevel?.trim();
 			const modelValue =
 				thinkingLevel === "off"
@@ -310,11 +314,11 @@ export class StepWelcomeComponent implements Component {
 						: model;
 			const facts: Array<{ label: string; value: string; highlight: boolean }> = [
 				...(sessionId && !this.showFirstMessageHint
-					? [{ label: "session", value: sessionId, highlight: true }]
+					? [{ label: t("welcome.label.session"), value: sessionId, highlight: true }]
 					: []),
-				{ label: "model", value: modelValue, highlight: true },
+				{ label: t("welcome.label.model"), value: modelValue, highlight: true },
 				{
-					label: "cwd",
+					label: t("welcome.label.cwd"),
 					value: formatCwdForFooter(info.workspaceRoot, process.env.HOME || process.env.USERPROFILE),
 					highlight: false,
 				},
@@ -349,8 +353,8 @@ export class StepWelcomeComponent implements Component {
 			const padding = Math.max(0, innerWidth - visibleWidth(row));
 			return `${paintStepWordmarkBorder("│ ")}${row}${" ".repeat(padding)}${paintStepWordmarkBorder(" │")}`;
 		};
-		const tips = ["", muted("Tips")];
-		const welcomeTips = info.ultracodeAvailable ? [...WELCOME_TIPS, ULTRACODE_TIP] : WELCOME_TIPS;
+		const tips = ["", muted(t("welcome.tips"))];
+		const welcomeTips = info.ultracodeAvailable ? [...buildWelcomeTips(), buildUltracodeTip()] : buildWelcomeTips();
 		const prefixWidth = Math.max(...welcomeTips.map((tip) => visibleWidth(tip.command))) + 2;
 		for (const tip of welcomeTips) {
 			const prefix = tip.command + " ".repeat(prefixWidth - visibleWidth(tip.command));
@@ -392,7 +396,7 @@ export class StepWelcomeComponent implements Component {
 			lines = [top, ...framed, ...framedTips, bottom, ""];
 		}
 		if (this.showFirstMessageHint) {
-			lines.push(muted(FIRST_SESSION_HINT), "");
+			lines.push(muted(t("welcome.firstSessionHint")), "");
 		}
 		// Pi's main renderer rejects over-wide lines. The old TranscriptView ran
 		// the same clamp after composing this block; keep the guard local because

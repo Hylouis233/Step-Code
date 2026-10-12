@@ -133,7 +133,7 @@ export function createUltraloopOptInExtension(options: UltraloopOptInExtensionOp
 		// Session boundary re-seeds standing mode from settings: each session
 		// starts opted-out unless `ultracodeDefault` turns the mode on.
 		pi.on("session_start", (_event, ctx) => {
-			sessionMode = options.settings?.()?.getUltracodeDefault() ?? false;
+			sessionMode = options.settings?.()?.getUltracodeDefault() === true;
 			optedInThisTurn = false;
 			setTurnBudget(undefined);
 			ctx.ui.setStatus("ultracode", sessionMode ? "Ultracode on" : undefined);
