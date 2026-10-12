@@ -222,14 +222,14 @@ export function createStepExtension(options: StepExtensionOptions = {}): Extensi
 				nativeRetryOverridden = false;
 			}
 			if (autoResume) {
-				if (!nativeRetryOverridden && ctx.autoRetryEnabled !== true) {
-					nativeRetryOverridden = true;
-				}
-				try {
-					ctx.setAutoRetryEnabled(true);
-				} catch {
-					// Retry is a product convenience. A host that cannot persist settings
-					// must still be able to execute the current turn.
+				if (ctx.autoRetryEnabled !== true) {
+					if (!nativeRetryOverridden) nativeRetryOverridden = true;
+					try {
+						ctx.setAutoRetryEnabled(true);
+					} catch {
+						// Retry is a product convenience. A host that cannot persist settings
+						// must still be able to execute the current turn.
+					}
 				}
 			} else if (nativeRetryOverridden) {
 				try {

@@ -56,6 +56,33 @@ describe("Step extension", () => {
 			}
 		},
 	);
+	test("does not persist retry when automatic mode finds it already enabled", () => {
+		const on = vi.fn();
+		createStepExtension({
+			permission: { env: {}, initialPreset: "approve-for-me" },
+			stepSettings: () => ({
+				getStepSettings: () => ({}),
+				setEffectiveStepSettings: vi.fn(),
+			}),
+		})({
+			on,
+			sendUserMessage: vi.fn(),
+			registerProvider: vi.fn(),
+			registerCommand: vi.fn(),
+		} as unknown as ExtensionAPI);
+		const sessionStart = on.mock.calls.find(([event]) => event === "session_start")![1];
+		const setAutoRetryEnabled = vi.fn();
+		sessionStart(
+			{},
+			{
+				hasUI: false,
+				ui: { notify: vi.fn(), setStatus: vi.fn() },
+				autoRetryEnabled: true,
+				setAutoRetryEnabled,
+			},
+		);
+		expect(setAutoRetryEnabled).not.toHaveBeenCalled();
+	});
 	test.each([
 		{ name: "selected non-Bash interpreter", shellPath: process.execPath, prefix: undefined },
 		{ name: "executed command prefix", shellPath: undefined, prefix: "rm -rf ./build" },

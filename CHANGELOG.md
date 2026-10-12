@@ -8,5 +8,6 @@
 
 ### Fixed
 
+- Stop appending Ultracode capability tutorials on every turn. Announce session-mode transitions after user input, reuse unchanged state, and restore necessary reminders when context is compacted or replaced.
 - Recognize `/exit` as an alias for `/quit`, including while the agent is running or compacting.
 - Recognize `search_files`, `find_files`, and `list_directory` when selecting default system-prompt file-exploration guidance.
