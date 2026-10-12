@@ -108,6 +108,34 @@ describe("frontmatter error diagnostics", () => {
 		);
 	});
 
+	it.each([null, undefined])("handles an absent error (%s)", (error) => {
+		expect(() => describeFrontmatterError(error)).not.toThrow();
+	});
+
+	it("escapes control characters in parser reasons", () => {
+		const broken = '---\ndescription: "bad\\\u001b[31m"\n---';
+		const message = formatFrontmatterError("/skills/broken/SKILL.md", captureError(broken), broken);
+		expect(message).not.toContain("\u001b");
+		expect(message).toContain("\\u001b");
+	});
+
+	it.each([
+		"description: # note: later\nother: [unclosed",
+		"description: |\n  description: harmless: text\nother: [unclosed",
+		"notes: |\n  description: harmless: text\ndescription: valid\nother: [unclosed",
+	])("does not recommend quoting valid descriptions: %s", (yaml) => {
+		const broken = `---\n${yaml}\n---`;
+		expect(hasUnquotedColonInDescription(broken)).toBe(false);
+		expect(formatFrontmatterError("/skills/broken/SKILL.md", captureError(broken), broken)).not.toContain(
+			"wrap the value",
+		);
+	});
+
+	it.each(["\n", "\r\n", "\r"])("preserves file-relative coordinates with %j line endings", (newline) => {
+		const broken = `\uFEFF${unquotedColon.replaceAll("\n", newline)}`;
+		expect(describeFrontmatterError(captureError(broken))).toMatchObject({ line: 3, column: 14 });
+	});
+
 	describe("hasUnquotedColonInDescription", () => {
 		it("detects an unquoted colon in the description value", () => {
 			expect(hasUnquotedColonInDescription(unquotedColon)).toBe(true);

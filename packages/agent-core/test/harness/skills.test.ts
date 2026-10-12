@@ -141,6 +141,31 @@ Use this skill.
 		expect(skills.map((skill) => skill.description)).toEqual(["Search the web: before guessing"]);
 	});
 
+	it.each([
+		"description: # note: later\nother: [unclosed",
+		"description: |\n  description: harmless: text\nother: [unclosed",
+	])("omits quoting hints for valid description syntax: %s", async (yaml) => {
+		const root = createTempDir();
+		const env = new NodeExecutionEnv({ cwd: root });
+		await env.createDir("user/example", { recursive: true });
+		await env.writeFile("user/example/SKILL.md", `---\nname: example\n${yaml}\n---`);
+		const { diagnostics } = await loadSkills(env, "user");
+		expect(diagnostics).toHaveLength(1);
+		expect(diagnostics[0].code).toBe("parse_failed");
+		expect(diagnostics[0].message).not.toContain("wrap the value");
+	});
+
+	it("escapes terminal control characters in parser reasons", async () => {
+		const root = createTempDir();
+		const env = new NodeExecutionEnv({ cwd: root });
+		await env.createDir("user/example", { recursive: true });
+		await env.writeFile("user/example/SKILL.md", '---\nname: example\ndescription: "bad\\\u001b[31m"\n---');
+		const { diagnostics } = await loadSkills(env, "user");
+		expect(diagnostics).toHaveLength(1);
+		expect(diagnostics[0].message).not.toContain("\u001b");
+		expect(diagnostics[0].message).toContain("\\u001b");
+	});
+
 	it("loads direct markdown children only from the root directory", async () => {
 		const root = createTempDir();
 		const env = new NodeExecutionEnv({ cwd: root });
