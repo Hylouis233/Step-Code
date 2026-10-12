@@ -1,6 +1,6 @@
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { AgentSession, ReadonlyFooterDataProvider } from "@step-harness/coding-agent";
-import { addUsageToTotals, createUsageTotals, theme } from "@step-harness/coding-agent";
+import { addUsageToTotals, createUsageTotals, t, theme } from "@step-harness/coding-agent";
 import { type Component, sliceByColumn, truncateToWidth, visibleWidth } from "@step-harness/pi-tui";
 
 /**
@@ -209,7 +209,7 @@ export class FooterComponent implements Component {
 		if (state.model?.reasoning) {
 			const thinkingLevel = state.thinkingLevel || "off";
 			rightSideWithoutProvider =
-				thinkingLevel === "off" ? `${modelName} • thinking off` : `${modelName} • ${thinkingLevel}`;
+				thinkingLevel === "off" ? `${modelName} • ${t("footer.thinkingOff")}` : `${modelName} • ${thinkingLevel}`;
 		}
 
 		// Prepend the provider in parentheses if there are multiple providers and there's enough room
@@ -390,7 +390,7 @@ export class FooterComponent implements Component {
 		}
 
 		const usedPercent = Math.max(0, Math.min(100, usage.percent));
-		const contextLeftText = `${Math.round(100 - usedPercent)}% context left`;
+		const contextLeftText = t("footer.contextLeft", { percent: Math.round(100 - usedPercent) });
 		// Same thresholds as the native footer: >90% used turns error, >70% warning.
 		const contextPaint = usedPercent > 90 ? error : usedPercent > 70 ? warning : muted;
 		const right = contextPaint(contextLeftText);
