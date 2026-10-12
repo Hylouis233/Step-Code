@@ -1890,7 +1890,11 @@ export class InteractiveMode {
 		return this.formatDisplayPath(p);
 	}
 
-	private formatDiagnostics(diagnostics: readonly ResourceDiagnostic[], sourceInfos: Map<string, SourceInfo>): string {
+	private formatDiagnostics(
+		diagnostics: readonly ResourceDiagnostic[],
+		sourceInfos: Map<string, SourceInfo>,
+		options?: { summarizeCollisions?: boolean },
+	): string {
 		const lines: string[] = [];
 
 		// Group collision diagnostics by name
@@ -1905,6 +1909,11 @@ export class InteractiveMode {
 			} else {
 				otherDiagnostics.push(d);
 			}
+		}
+
+		if (options?.summarizeCollisions && collisions.size > 0) {
+			lines.push(...this.formatCollisionSummary(collisions));
+			collisions.clear();
 		}
 
 		// Format collision diagnostics grouped by name
@@ -1952,6 +1961,44 @@ export class InteractiveMode {
 		}
 
 		return lines.join("\n");
+	}
+
+	/**
+	 * One line per (skipped directory, winning directory) pair. Shadowed resources are
+	 * informational - the winner already loaded - so the per-name breakdown is left to
+	 * --verbose instead of filling the startup screen.
+	 */
+	private formatCollisionSummary(collisions: Map<string, ResourceDiagnostic[]>): string[] {
+		const resourceRoot = (p: string) => {
+			// <root>/<name>/SKILL.md belongs to <root>; a loose <root>/<name>.md does too.
+			const dir = path.dirname(p);
+			return path.basename(p) === "SKILL.md" ? path.dirname(dir) : dir;
+		};
+
+		const groups = new Map<string, { loserRoot: string; winnerRoot: string; noun: string; count: number }>();
+		for (const collisionList of collisions.values()) {
+			for (const d of collisionList) {
+				if (!d.collision) continue;
+				const loserRoot = resourceRoot(d.collision.loserPath);
+				const winnerRoot = resourceRoot(d.collision.winnerPath);
+				const key = `${loserRoot}\0${winnerRoot}`;
+				const group = groups.get(key) ?? { loserRoot, winnerRoot, noun: d.collision.resourceType, count: 0 };
+				group.count++;
+				groups.set(key, group);
+			}
+		}
+
+		const lines: string[] = [];
+		for (const { loserRoot, winnerRoot, noun, count } of groups.values()) {
+			lines.push(
+				theme.fg(
+					"warning",
+					`  ${count} ${noun}${count === 1 ? "" : "s"} in ${this.formatDisplayPath(loserRoot)} skipped (same name already loaded from ${this.formatDisplayPath(winnerRoot)})`,
+				),
+			);
+		}
+		lines.push(theme.fg("dim", "  Run with --verbose to list them."));
+		return lines;
 	}
 
 	private showLoadedResources(options?: {
@@ -2127,9 +2174,11 @@ export class InteractiveMode {
 		}
 
 		if (showDiagnostics) {
+			// Without the full listing, shadowed skills/prompts collapse to a one-line summary.
+			const summarizeCollisions = !showListing && !this.options.verbose;
 			const skillDiagnostics = skillsResult.diagnostics;
 			if (skillDiagnostics.length > 0) {
-				const warningLines = this.formatDiagnostics(skillDiagnostics, sourceInfos);
+				const warningLines = this.formatDiagnostics(skillDiagnostics, sourceInfos, { summarizeCollisions });
 				this.loadedResourcesContainer.addChild(
 					new Text(`${theme.fg("warning", "[Skill conflicts]")}\n${warningLines}`, 0, 0),
 				);
@@ -2138,7 +2187,7 @@ export class InteractiveMode {
 
 			const promptDiagnostics = promptsResult.diagnostics;
 			if (promptDiagnostics.length > 0) {
-				const warningLines = this.formatDiagnostics(promptDiagnostics, sourceInfos);
+				const warningLines = this.formatDiagnostics(promptDiagnostics, sourceInfos, { summarizeCollisions });
 				this.loadedResourcesContainer.addChild(
 					new Text(`${theme.fg("warning", "[Prompt conflicts]")}\n${warningLines}`, 0, 0),
 				);
