@@ -366,7 +366,7 @@ export function buildStepSystemPromptAppendix(
 
 	if ((active.has("edit_file") || active.has("write_file")) && active.has("run_command")) {
 		sections.push(
-			"- To verify a change immediately, pass the check as then_run on edit_file or write_file (for example a focused test or typecheck) instead of a separate run_command call; it runs only after the change succeeds and needs the same approval as run_command.",
+			"- For a short check that fits the default command settings, use then_run on edit_file or write_file; it is an embedded run_command with the same execution defaults and approval rules. Use run_command separately for custom cwd, timeout, output limits, or background execution. Inspect the appended command status: a successful file change does not imply a successful check.",
 		);
 	}
 
