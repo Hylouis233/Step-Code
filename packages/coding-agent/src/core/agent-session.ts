@@ -113,6 +113,7 @@ import { type BashExecutionMessage, type CustomMessage, convertToLlm } from "./m
 import { ModelRegistry } from "./model-registry.ts";
 import type { ModelRuntime } from "./model-runtime.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
+import { isRateLimitError, rateLimitDelay } from "./rate-limit.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
 import { exportSessionToJsonl } from "./session-export.ts";
 import type { BranchSummaryEntry, CompactionEntry, SessionEntry, SessionManager } from "./session-manager.ts";
@@ -158,7 +159,14 @@ export type AgentSessionEvent =
 			willRetry: boolean;
 			errorMessage?: string;
 	  }
-	| { type: "auto_retry_start"; attempt: number; maxAttempts: number; delayMs: number; errorMessage: string }
+	| {
+			type: "auto_retry_start";
+			attempt: number;
+			maxAttempts: number;
+			delayMs: number;
+			errorMessage: string;
+			reason?: "rate_limit";
+	  }
 	| { type: "auto_retry_end"; success: boolean; attempt: number; finalError?: string }
 	| {
 			type: "summarization_retry_scheduled";
@@ -365,6 +373,7 @@ export class AgentSession {
 	// Retry state
 	private _retryAbortController: AbortController | undefined = undefined;
 	private _retryAttempt = 0;
+	private _rateLimitRetryAttempt = 0;
 
 	// Bash execution state
 	private readonly _bashAbortControllers = new Set<AbortController>();
@@ -1176,6 +1185,7 @@ export class AgentSession {
 						attempt: this._retryAttempt,
 					});
 					this._retryAttempt = 0;
+					this._rateLimitRetryAttempt = 0;
 				}
 			}
 		}
@@ -1197,14 +1207,20 @@ export class AgentSession {
 
 	private _willRetryAfterAgentEnd(event: Extract<AgentEvent, { type: "agent_end" }>): boolean {
 		const settings = this.settingsManager.getRetrySettings();
-		if (!settings.enabled || this._retryAttempt >= settings.maxRetries) {
+		if (!settings.enabled) {
 			return false;
 		}
 
 		for (let i = event.messages.length - 1; i >= 0; i--) {
 			const message = event.messages[i];
 			if (message.role === "assistant") {
-				return this._isRetryableError(message as AssistantMessage);
+				const rateLimited = isRateLimitError(message as AssistantMessage);
+				return (
+					this._isRetryableError(message as AssistantMessage) &&
+					(rateLimited
+						? this._rateLimitRetryAttempt < settings.rateLimitMaxRetries
+						: this._retryAttempt - this._rateLimitRetryAttempt < settings.maxRetries)
+				);
 			}
 		}
 		return false;
@@ -1681,6 +1697,7 @@ export class AgentSession {
 			// all of them and would leave a stale count for the next prompt to read.
 			// Cleared last so agent_settled listeners still see the final count.
 			this._retryAttempt = 0;
+			this._rateLimitRetryAttempt = 0;
 		}
 	}
 
@@ -1705,6 +1722,7 @@ export class AgentSession {
 				finalError: msg.errorMessage,
 			});
 			this._retryAttempt = 0;
+			this._rateLimitRetryAttempt = 0;
 		}
 
 		// CLM maintains context for a future request. A successful settled answer
@@ -3544,21 +3562,26 @@ export class AgentSession {
 			return false;
 		}
 
-		this._retryAttempt++;
-
-		if (this._retryAttempt > settings.maxRetries) {
-			// Preserve the completed attempt count so post-run handling can emit the final failure.
-			this._retryAttempt--;
+		const rateLimited = isRateLimitError(message);
+		const maxRetries = rateLimited ? settings.rateLimitMaxRetries : settings.maxRetries;
+		const attempt =
+			(rateLimited ? this._rateLimitRetryAttempt : this._retryAttempt - this._rateLimitRetryAttempt) + 1;
+		if (attempt > maxRetries) {
 			return false;
 		}
+		this._retryAttempt++;
+		if (rateLimited) this._rateLimitRetryAttempt++;
 
-		const delayMs = settings.baseDelayMs * 2 ** (this._retryAttempt - 1);
+		const delayMs = rateLimited
+			? rateLimitDelay(attempt, message.retryAfterMs)
+			: settings.baseDelayMs * 2 ** (attempt - 1);
 		this._retryAbortController = new AbortController();
 
 		this._emit({
 			type: "auto_retry_start",
-			attempt: this._retryAttempt,
-			maxAttempts: settings.maxRetries,
+			attempt,
+			maxAttempts: maxRetries,
+			...(rateLimited ? { reason: "rate_limit" as const } : {}),
 			delayMs,
 			errorMessage: message.errorMessage || "Unknown error",
 		});
@@ -3576,6 +3599,7 @@ export class AgentSession {
 			// Aborted during sleep - emit end event so UI can clean up
 			const attempt = this._retryAttempt;
 			this._retryAttempt = 0;
+			this._rateLimitRetryAttempt = 0;
 			this._emit({
 				type: "auto_retry_end",
 				success: false,

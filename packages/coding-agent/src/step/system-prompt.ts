@@ -278,7 +278,7 @@ export function buildStepSystemPromptAppendix(
 					"- iterate({spec, maxIterations, stopWhenSpecCoverage}) runs the HoH loop: a read-only Planner, a single-writer Developer, and an independent read-only QA, with role boundaries enforced by toolProfile and readOnly/writable mounts; it stops on spec coverage, stagnation, max iterations, an empty objective, or exhausted budget.",
 					"- Pass a JSON schema to agent() whenever a later stage consumes the result; output is forced to structured JSON and mismatches are retried up to 3 times before the call fails.",
 					"- Budgets fail closed once exhausted and budget.total is null when no limit is set, so guard scale decisions with budget.total && budget.remaining() > n. Report every drop with log() — top-N truncations, skipped retries, sampling — never cap silently.",
-					"- Resume with resumeFromRunId: the same script and args replay the unchanged call prefix as a 100% cache hit; the first mismatched call and everything after it re-run live.",
+					"- Resume with resumeFromRunId: completed calls with unchanged prompt and options replay from the journal in any order; changed, new, and previously failed calls run live. After a live call writes files or runs a shell command, cached calls that read the environment run live too.",
 					"- Scripts must be deterministic: Date, new Date(), and Math.random() throw in the isolated runtime, and process, require, and network access are unavailable. Pass timestamps through args and vary prompts by index.",
 					"- Default to a medium-sized run and stay under roughly 15 agents unless the user asks for scale or ultraloop is on for the session.",
 				].join("\n"),
