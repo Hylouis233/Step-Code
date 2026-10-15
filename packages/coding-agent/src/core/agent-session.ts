@@ -126,6 +126,7 @@ import { type BashOperations, createLocalBashOperations } from "./tools/bash.ts"
 import { createAllToolDefinitions } from "./tools/index.ts";
 import { createToolDefinitionFromAgentTool } from "./tools/tool-definition-wrapper.ts";
 import { boundToolResultContent } from "./tools/tool-output.ts";
+import { collectSessionUsage } from "./usage-projection.ts";
 import { addUsageToTotals, createUsageTotals, getAutoClmUsage } from "./usage-totals.ts";
 
 export { type ParsedSkillBlock, parseSkillBlock } from "../utils/skill-block.ts";
@@ -4000,6 +4001,8 @@ export class AgentSession {
 	 * actually billed across the session.
 	 */
 	getSessionStats(): SessionStats {
+		const entries = this.sessionManager.getEntries(),
+			tokens = collectSessionUsage(entries);
 		let userMessages = 0;
 		let assistantMessages = 0;
 		let toolResults = 0;
@@ -4007,7 +4010,7 @@ export class AgentSession {
 		let toolCalls = 0;
 		const usageTotals = createUsageTotals();
 
-		for (const entry of this.sessionManager.getEntries()) {
+		for (const entry of entries) {
 			const maintenanceUsage = getAutoClmUsage(entry);
 			if (maintenanceUsage) addUsageToTotals(usageTotals, maintenanceUsage);
 			if ((entry.type === "branch_summary" || entry.type === "compaction") && entry.usage) {
@@ -4042,11 +4045,11 @@ export class AgentSession {
 			toolResults,
 			totalMessages,
 			tokens: {
-				input: usageTotals.input,
-				output: usageTotals.output,
-				cacheRead: usageTotals.cacheRead,
-				cacheWrite: usageTotals.cacheWrite,
-				total: usageTotals.input + usageTotals.output + usageTotals.cacheRead + usageTotals.cacheWrite,
+				input: tokens.input - tokens.cacheRead - tokens.cacheWrite,
+				output: tokens.output,
+				cacheRead: tokens.cacheRead,
+				cacheWrite: tokens.cacheWrite,
+				total: tokens.total,
 			},
 			cost: usageTotals.cost,
 			contextUsage: this.getContextUsage(),
