@@ -2,9 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main, fix/steppage-windows-provisioning]
+    branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
