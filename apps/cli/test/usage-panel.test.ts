@@ -109,9 +109,27 @@ describe.each(["regular", "fullscreen"] as const)("Usage panel mounting in %s mo
 	});
 });
 describe("Usage and Status presentation", () => {
-	it("shows only Overview/Account tabs and different used/remaining quota wording", () => {
+	it("shows only Overview/Account tabs and consistent remaining quota wording", () => {
 		const account = usagePresentationRows(model()).join("\n"), status = usagePresentationRows(model("status")).join("\n");
-		expect(account).toContain("1 Overview   [2 Account]"); expect(account).not.toMatch(/3 Session|4 History/u); expect(account).toContain("13.0% used"); expect(status).toContain("87.0% left"); expect(status).toContain("Permissions:"); expect(status).toContain("Session:"); expect(status).toContain("no network request");
+		expect(account).toContain("1 Overview   [2 Account]"); expect(account).not.toMatch(/3 Session|4 History/u); expect(account).toContain("87.0% left"); expect(account).not.toContain("% used"); expect(status).toContain("87.0% left"); expect(status).toContain("Permissions:"); expect(status).toContain("Session:"); expect(status).toContain("no network request");
+	});
+	it.each([
+		{ used: 0, total: "100", remaining: "100", expected: `[${"█".repeat(20)}] 100.0% left` },
+		{ used: 25, total: "100", remaining: "75", expected: `[${"█".repeat(15)}${"░".repeat(5)}] 75.0% left` },
+		{ used: 100, total: "100", remaining: "0", expected: `[${"░".repeat(20)}] 0.0% left` },
+		{ used: null, total: "0", remaining: "0", expected: "Remaining percentage unavailable" },
+	])("shows Credit percentages without confusing full, empty and unknown balances: $used", ({ used, total, remaining, expected }) => {
+		for (const view of ["account", "status"] as const) {
+			const m = model(view);
+			m.account.snapshot!.plan.family = "token";
+			m.account.snapshot!.quota.windows = [];
+			m.account.snapshot!.quota.credit_buckets = [{ type: "subscription", total, remaining, used_percent: used, resets_at_ms: null, expires_at_ms: null }];
+			const rows = usagePresentationRows(m).map(stripTerminalSequences);
+			const index = rows.findIndex((row) => row.startsWith("Subscription Credits:"));
+			expect(rows[index]).toContain(expected);
+			expect(rows[index + 1]).toContain(`${remaining} / ${total} Credits left`);
+			if (used === null) expect(rows.join("\n")).not.toMatch(/\d+(?:\.\d+)?% left/u);
+		}
 	});
 	it("preserves Credit precision and hides unknown bucket amounts", () => {
 		const m = model(); m.account.snapshot!.plan.family = "token"; m.account.snapshot!.quota.windows = [];

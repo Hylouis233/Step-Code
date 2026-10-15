@@ -6,6 +6,8 @@
 
 Overview reads this machine's Step session JSONL files and shows the last 365 local calendar dates. It includes an activity heatmap, daily token/chat totals, reasoning settings recorded at dispatch, discovered/used skills, and plugin/skill runs. `P` switches all projects/current project; `[` and `]` select a date. Narrow terminals show recent weeks while totals still cover the year.
 
+All active heatmap cells use the theme's accent color. Denser blocks indicate more tokens; `▣` marks the selected date and `·` indicates no token usage.
+
 Tokens include assistant replies, tool-reported usage, compaction/branch summaries, and incremental AutoCLM records. Input includes ordinary input plus cache reads/writes. All main-session entries are counted, including restored history and branches; cumulative AutoCLM summaries are not counted again. Subagent tokens contribute to Overview, attributed to their parent project; subagent sessions do not increase the chat count.
 
 Forks/exports carry small origin manifests so copied entries retain their original session/project. Missing legacy parent files and older sessions without activity/provenance records are reported as limited coverage. Skill activation means an actual read of a loaded SKILL.md; plugin ownership comes from discovered manifests/tool registrations. Historical metadata is not inferred from today's configuration.
@@ -18,7 +20,7 @@ Limits are explicit: 10,000 files, 25,000 selected records, 16 MiB per source li
 
 Account queries the personal Step Plan usage endpoint with the stored CN/Global Plan credential. Model/gateway keys supplied by `STEP_API_KEY` or `--api-key`, platform profiles and unknown profiles do not query that endpoint. Redirects are rejected. Keys stay in the controller, outside renderer/output data.
 
-CODING plans show 5-hour and weekly percentages **used** and reset times. Nonpositive upstream limits mean Unlimited. TOKEN plans show subscription/top-up Credit buckets and reset/expiry times. Credit quantities stay decimal strings/BigInt throughout rendering. Unknown future bucket types are marked unsupported; partial bucket errors are not displayed as zero balance.
+CODING plans show 5-hour and weekly percentages **remaining** and reset times. Nonpositive upstream limits mean Unlimited. TOKEN plans show the remaining percentage for each subscription/top-up Credit bucket, with exact remaining/total Credits on the next line and reset/expiry times below. Both Account and Status fill bars according to remaining quota: a full bar means 100% left. A missing percentage, including a zero-total bucket, is shown as unavailable rather than 0% or 100%. Credit quantities stay decimal strings/BigInt throughout rendering; percentages use the API's validated `used_percent` without converting Credit quantities to floating point. Unknown future bucket types are marked unsupported; partial bucket errors are not displayed as zero balance.
 
 The current main-session summary is local and includes restored/inherited history and incremental compression usage. It excludes separate child-session files. Cache hit is cache reads divided by complete input; an empty denominator is Unknown.
 
@@ -28,7 +30,7 @@ Account responses have a 30-second memory cache and a 5-minute display lifetime.
 
 `/status` reads the live local model, provider, reasoning, directory, permissions, loaded AGENTS.md files, account metadata, collaboration mode and session identity. It shows cached quota **remaining**; it never triggers an account request. `D` expands local diagnostic details. Credential presence is not a claim of online validity.
 
-`1`/`2` or arrows switch Usage tabs, `R` refreshes Account, arrows/PageUp/PageDown scroll, and Esc closes. The panel owns its overlay handle so closing it does not pop an approval overlay.
+`1`/`2` or left/right arrows switch Usage tabs, `R` refreshes Account, up/down arrows scroll, and Esc closes. The panel uses the editor area, with the footer underneath, and restores editor input on close.
 
 RPC command output uses `extension_ui_request` notifications. Other noninteractive CLI modes use stderr, keeping protocol stdout clear. SDK embedders can use `PlanUsageController`, `scanUsageOverview`, `collectSessionUsage` and the exported presentation types; a custom command host supplies its own presenter/output sink.
 

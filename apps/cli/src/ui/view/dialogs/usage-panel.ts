@@ -22,21 +22,28 @@ const dateTime = (ms: number | null): string =>
 const field = (name: string, value: string): string => `${name.padEnd(22)} ${value}`;
 const safe = (text: string): string => stripAnsi(text).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/gu, "");
 
-function accountRows(state: AccountUsageState, remaining = false): string[] {
+function remainingQuota(usedPercent: number | null): string {
+	if (usedPercent === null) return "Remaining percentage unavailable";
+	const remaining = 100 - usedPercent,
+		filled = Math.round(remaining / 5);
+	return `[${theme.fg("accent", "█".repeat(filled))}${theme.fg("dim", "░".repeat(20 - filled))}] ${remaining.toFixed(1)}% left`;
+}
+
+function accountRows(state: AccountUsageState, cached = false): string[] {
 	const snapshot = state.snapshot,
 		now = Date.now();
 	const lines = [state.status === "loading" ? "Refreshing account…" : ""];
 	if (state.message) lines.push(state.message);
 	if (state.retryAt && state.retryAt > now) lines.push(`Retry in ${Math.ceil((state.retryAt - now) / 1000)}s`);
 	if (!snapshot) {
-		if (!state.message) lines.push(remaining ? "Not cached · open /usage account" : "Account quota not cached.");
+		if (!state.message) lines.push(cached ? "Not cached · open /usage account" : "Account quota not cached.");
 		return lines.filter(Boolean);
 	}
 	lines.push(
 		`Plan · ${snapshot.plan.name ?? (snapshot.plan.state === "unavailable" ? "Name unavailable" : snapshot.plan.family.toUpperCase())}`,
 	);
 	lines.push(
-		`${state.status === "stale" ? "Stale · " : remaining ? "Cached · " : ""}Updated ${dateTime(snapshot.observed_at_ms)}`,
+		`${state.status === "stale" ? "Stale · " : cached ? "Cached · " : ""}Updated ${dateTime(snapshot.observed_at_ms)}`,
 	);
 	if (snapshot.plan.subscription?.expires_at_ms)
 		lines.push(field("Plan expires:", dateTime(snapshot.plan.subscription.expires_at_ms)));
@@ -53,15 +60,7 @@ function accountRows(state: AccountUsageState, remaining = false): string[] {
 			lines.push(field(`${name} limit:`, "Unlimited"));
 			continue;
 		}
-		const p = remaining ? 100 - (window.used_percent ?? 0) : (window.used_percent ?? 0);
-		const filled = Math.round(p / 5),
-			bar = "█".repeat(filled) + "░".repeat(20 - filled);
-		lines.push(
-			field(
-				`${name} ${remaining ? "limit:" : "usage:"}`,
-				`[${bar}] ${p.toFixed(1)}% ${remaining ? "left" : "used"}`,
-			),
-		);
+		lines.push(field(`${name} limit:`, remainingQuota(window.used_percent)));
 		lines.push(field("", `Resets ${dateTime(window.resets_at_ms)}`));
 	}
 	if (snapshot.quota.credit_buckets === null) lines.push("Credit bucket details temporarily unavailable");
@@ -80,13 +79,14 @@ function accountRows(state: AccountUsageState, remaining = false): string[] {
 		lines.push(
 			field(
 				bucket.type === "subscription" ? "Subscription Credits:" : `Top-up ${index + 1}:`,
-				`${count(BigInt(bucket.remaining))} / ${count(BigInt(bucket.total))} Credit`,
+				remainingQuota(bucket.used_percent),
 			),
+			field("", `${count(BigInt(bucket.remaining))} / ${count(BigInt(bucket.total))} Credits left`),
 		);
 		if (bucket.resets_at_ms !== null) lines.push(field("", `Resets ${dateTime(bucket.resets_at_ms)}`));
 		lines.push(field("", `Expires ${dateTime(bucket.expires_at_ms)}`));
 	}
-	if (!remaining) {
+	if (!cached) {
 		lines.push(
 			snapshot.quota.allowed
 				? "Quota check: available"
@@ -142,14 +142,13 @@ function heatmap(model: UsagePresentation, width: number): string[] {
 					if (d.date === model.selectedDate) return theme.fg("accent", "▣ ");
 					return d.tokens === 0
 						? theme.fg("dim", "· ")
-						: theme.fg(
-								d.tokens / max > 0.5 ? "accent" : "warning",
-								`${["░", "▒", "▓", "█"][Math.min(3, Math.ceil((d.tokens / max) * 4) - 1)]} `,
-							);
+						: theme.fg("accent", `${["░", "▒", "▓", "█"][Math.min(3, Math.ceil((d.tokens / max) * 4) - 1)]} `);
 				})
 				.join("")}`,
 		);
-	rows.push("    Less · ░ ▒ ▓ █ More");
+	rows.push(
+		`    Less ${theme.fg("dim", "·")} ${theme.fg("accent", "░ ▒ ▓ █")} More · ${theme.fg("accent", "▣")} Selected day`,
+	);
 	if (visible < weeks.length) rows.push(`Showing the latest ${visible} weeks; totals cover the full year.`);
 	const selected = days.find((d) => d.date === model.selectedDate) ?? days.at(-1)!;
 	rows.push(
