@@ -70,9 +70,15 @@ function mergeUsage(usages: Usage[]): Usage | undefined {
 export class AutoClmController {
 	private readonly session: SessionManager;
 	private readonly live: LiveContextManager;
+	private disposed = false;
 	constructor(session: SessionManager, live: LiveContextManager) {
 		this.session = session;
 		this.live = live;
+	}
+
+	/** Stop late maintenance responses from writing to a session that was torn down. */
+	dispose(): void {
+		this.disposed = true;
 	}
 
 	private turnsSinceAttempt(): number | undefined {
@@ -197,6 +203,22 @@ export class AutoClmController {
 				return false;
 			}
 		};
+		// Responses may settle after a timeout, interruption, navigation or disposal.
+		// Usage rows are branch entries, so persist one only while the originating
+		// leaf is still on the selected path of the same live session.
+		const recordUsage = (row: Record<string, unknown>): void => {
+			if (this.disposed || this.session.getSessionId() !== sessionId) return;
+			if (sourceLeafId && !this.session.getBranch().some((entry) => entry.id === sourceLeafId)) return;
+			this.session.appendCustomEntry("step-auto-clm-usage", {
+				version: 1,
+				attemptId,
+				sessionId,
+				sourceLeafId,
+				provider: input.model.provider,
+				model: input.model.id,
+				...row,
+			});
+		};
 		const contextChanged = (): void => {
 			result.reason = "context-changed";
 			result.fallback = false;
@@ -277,16 +299,7 @@ export class AutoClmController {
 							error: error instanceof Error ? error.message : String(error),
 						};
 						responseRows.push(row);
-						if (this.session.getSessionId() === sessionId)
-							this.session.appendCustomEntry("step-auto-clm-usage", {
-								version: 1,
-								attemptId,
-								sessionId,
-								sourceLeafId,
-								provider: input.model.provider,
-								model: input.model.id,
-								...row,
-							});
+						recordUsage(row);
 						throw error;
 					}
 					const message = await stream.result();
@@ -303,16 +316,7 @@ export class AutoClmController {
 						error: message.errorMessage,
 					};
 					responseRows.push(row);
-					if (this.session.getSessionId() === sessionId)
-						this.session.appendCustomEntry("step-auto-clm-usage", {
-							version: 1,
-							attemptId,
-							sessionId,
-							sourceLeafId,
-							provider: input.model.provider,
-							model: input.model.id,
-							...row,
-						});
+					recordUsage(row);
 					return message;
 				})();
 				const response = await raceWithAbortSignal(responsePromise, input.controller.signal);

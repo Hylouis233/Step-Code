@@ -296,8 +296,10 @@ describe("bounded automatic CLM requests", () => {
 		);
 		expect(result).toMatchObject({ accepted: false, fallback: false, reason: "context-changed", requests: 1 });
 		expect(state.live.status().revision).toBe(0);
+		// The selected branch never contained the source leaf, so its history gets no usage row.
 		const row = state.session.getEntries().find((e) => e.type === "custom" && e.customType === "step-auto-clm-usage");
-		expect(row).toMatchObject({ data: { sourceLeafId: originalLeaf, usage } });
+		expect(row).toBeUndefined();
+		expect(originalLeaf).not.toBe(root);
 		for (const message of state.raw.slice(1)) if (message.role === "assistant") state.session.appendMessage(message);
 		const next = await new AutoClmController(state.session, state.live).run(input(state, () => completed()));
 		expect(next).toMatchObject({ attempted: true, requests: 1 });
@@ -487,6 +489,43 @@ describe("bounded automatic CLM requests", () => {
 			vi.useRealTimers();
 		}
 	});
+	for (const scenario of ["navigation", "disposal"] as const) {
+		it(`does not attach a late maintenance usage row after ${scenario}`, async () => {
+			const state = setup();
+			const root = state.session.getBranch()[0].id;
+			vi.useFakeTimers();
+			try {
+				let release!: () => void;
+				let started!: () => void;
+				const acquired = new Promise<void>((resolve) => {
+					release = resolve;
+				});
+				const requested = new Promise<void>((resolve) => {
+					started = resolve;
+				});
+				const runInput = input(state, async () => {
+					started();
+					await acquired;
+					return completed({ ...fauxAssistantMessage("Late response"), usage });
+				});
+				runInput.settings.timeoutMs = 100;
+				const pending = state.controller.run(runInput);
+				await requested;
+				await vi.advanceTimersByTimeAsync(100);
+				expect(await pending).toMatchObject({ reason: "timeout", requests: 1 });
+				if (scenario === "navigation") state.session.branch(root);
+				else state.controller.dispose();
+				const leafBefore = state.session.getLeafId();
+				const entriesBefore = state.session.getEntries().length;
+				release();
+				await vi.advanceTimersByTimeAsync(0);
+				expect(state.session.getEntries()).toHaveLength(entriesBefore);
+				expect(state.session.getLeafId()).toBe(leafBefore);
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+	}
 	it("bounds correction requests and records rejected attempts exactly once", async () => {
 		const state = setup();
 		let requests = 0;
