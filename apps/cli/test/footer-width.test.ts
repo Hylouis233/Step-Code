@@ -25,6 +25,7 @@ function createSession(options: {
 	branchUsage?: AssistantUsage;
 	compactionUsage?: AssistantUsage;
 	toolUsage?: AssistantUsage;
+	autoClmUsage?: AssistantUsage;
 	usingSubscription?: boolean;
 }): AgentSession {
 	const usage = options.usage;
@@ -51,6 +52,14 @@ function createSession(options: {
 		entries.push({
 			type: "compaction",
 			usage: options.compactionUsage,
+		});
+	}
+
+	if (options.autoClmUsage !== undefined) {
+		entries.push({
+			type: "custom",
+			customType: "step-auto-clm-usage",
+			data: { version: 1, usage: options.autoClmUsage },
 		});
 	}
 
@@ -193,6 +202,20 @@ describe("FooterComponent width handling", () => {
 
 		const statsLine = stripAnsi(footer.render(120)[1]);
 		expect(statsLine).toContain("$1.250");
+	});
+
+	it("includes automatic CLM maintenance usage in token and cost totals", () => {
+		const session = createSession({
+			sessionName: "",
+			usage: { input: 100, output: 10, cacheRead: 0, cacheWrite: 0, cost: { total: 0.25 } },
+			autoClmUsage: { input: 2_000, output: 500, cacheRead: 0, cacheWrite: 0, cost: { total: 0.5 } },
+		});
+		const footer = new FooterComponent(session, createFooterData(1));
+
+		const statsLine = stripAnsi(footer.render(120)[1]);
+		expect(statsLine).toContain("↑2.1k");
+		expect(statsLine).toContain("↓510");
+		expect(statsLine).toContain("$0.750");
 	});
 
 	it("shows the latest cache hit rate when cache usage is present", () => {
