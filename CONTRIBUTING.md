@@ -2,6 +2,30 @@
 
 This guide exists to save both sides time.
 
+## Contribution access and required reviews
+
+StepCode accepts pull requests from invited collaborators. Keep pull request
+creation set to **Collaborators only**. Invited external developers receive
+**Write** access to this repository and may work in a fork or a development
+branch, then open a pull request targeting `main`.
+
+The four maintainers listed in [.github/CODEOWNERS](.github/CODEOWNERS) form the
+fixed internal review pool for all repository paths. Each pull request requires
+approval from **at least one member of that pool**, excluding the
+pull request author. External collaborators' approvals do not count toward this
+internal requirement. Maintainer-authored pull requests follow the same rule.
+
+Before merging, the required CI checks must pass, review conversations must be
+resolved, and approvals must cover the current changes. Code changes after an
+approval require renewed review. An internal maintainer performs the merge;
+contributors must not push directly to `main`.
+
+`CODEOWNERS` requests reviews but does not enforce required owner approval or
+restrict who can merge. These requirements must also be enabled in GitHub's
+repository settings. See the [repository review configuration](docs/repository-review.md)
+for setup and verification; adding these files alone does not activate those
+settings.
+
 ## Philosophy
 
 First things first: **StepCode's core is minimal**.
