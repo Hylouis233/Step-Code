@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, expect, test, vi } from "vitest";
 
@@ -27,7 +27,7 @@ vi.mock("node:child_process", () => {
 				resolve({ stdout: `${handlers.nodeVersion}\n`, stderr: "" });
 			} else if (file === "cmd" && args[0] === "/d" && args[1] === "/c") {
 				const command = args[2] ?? "";
-				if (!command.endsWith(".cmd") || !handlers.commandExists(command)) reject(notFound(command));
+				if (!handlers.commandExists(command) || !command.endsWith(".cmd")) reject(notFound(command));
 				else resolve({ stdout: "1.0.0\n", stderr: "" });
 			} else if (file === "curl") {
 				Promise.resolve()
@@ -108,12 +108,34 @@ test("bundle URL preserves mirror authentication, encoding, and fragment", () =>
 
 test("windows probes the cmd wrapper", () => {
 	const managed = join("/home/u", ".local", "bin", "steppage-mcp");
-	expect(stepPageCommandCandidates("win32", "/home/u")).toEqual([
-		"steppage-mcp",
-		"steppage-mcp.cmd",
-		`${managed}.cmd`,
-	]);
+	expect(stepPageCommandCandidates("win32", "/home/u")).toEqual([`${managed}.cmd`]);
 	expect(stepPageCommandCandidates("linux", "/home/u")).toEqual(["steppage-mcp", managed]);
+});
+
+test("windows resolves PATH candidates to absolute files and never the working directory", () => {
+	const managed = join("/home/u", ".local", "bin", "steppage-mcp");
+	const tools = join("/opt", "tools");
+	const present = new Set([join(tools, "steppage-mcp.cmd"), join("bin", "steppage-mcp.cmd")]);
+	const candidates = stepPageCommandCandidates("win32", "/home/u", `.;bin;;"${tools}";/missing`, (path) =>
+		present.has(path),
+	);
+	expect(candidates).toEqual([join(tools, "steppage-mcp.cmd"), `${managed}.cmd`]);
+	for (const candidate of candidates) expect(isAbsolute(candidate)).toBe(true);
+});
+
+test("windows never probes a bare command that cmd could find in the working directory", async () => {
+	const f = await fixture();
+	const probed: string[] = [];
+	handlers.commandExists = (command) => {
+		probed.push(command);
+		return false;
+	};
+	handlers.onCurl = () => {
+		throw new Error("offline");
+	};
+	await ensureStepPageReady({ env: { ...f.env, PATH: `.;${join(f.root, "bin")}` }, platform: "win32" });
+	expect(probed.length).toBeGreaterThan(0);
+	for (const command of probed) expect(isAbsolute(command)).toBe(true);
 });
 
 test("wrapper runs the bundle through node", () => {
