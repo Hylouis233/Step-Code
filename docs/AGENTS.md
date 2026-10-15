@@ -4,6 +4,7 @@ Inherits the [root rules](../AGENTS.md). This directory maintains repository-wid
 
 ## Responsibilities and entry points
 
+- `development.md`, `testing.md`: coding conventions, collaboration, failure handling, and validation selection.
 - `step-configuration.md`, `step-unified-config-and-mcp.md`: configuration, directories, trust, and MCP startup / write contracts.
 - `command-permissions.md`: command analysis and product approvals. `orchestration-lifecycle.md`, `goal-lifecycle.md`: orchestration and goal lifecycles.
 - `tui-rendering-pipeline.md`, `step-goal-ui.md`: CLI UI and terminal rendering integration.
