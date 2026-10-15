@@ -114,9 +114,9 @@ describe("Usage and Status presentation", () => {
 		expect(account).toContain("1 Overview   [2 Account]"); expect(account).not.toMatch(/3 Session|4 History/u); expect(account).toContain("87.0% left"); expect(account).not.toContain("% used"); expect(status).toContain("87.0% left"); expect(status).toContain("Permissions:"); expect(status).toContain("Session:"); expect(status).toContain("no network request");
 	});
 	it.each([
-		{ used: 0, total: "100", remaining: "100", expected: `[${"█".repeat(20)}] 100.0% left` },
-		{ used: 25, total: "100", remaining: "75", expected: `[${"█".repeat(15)}${"░".repeat(5)}] 75.0% left` },
-		{ used: 100, total: "100", remaining: "0", expected: `[${"░".repeat(20)}] 0.0% left` },
+		{ used: 0, total: "100", remaining: "100", expected: `[${"▆".repeat(12)}] 100.0% left` },
+		{ used: 25, total: "100", remaining: "75", expected: `[${"▆".repeat(9)}${"▁".repeat(3)}] 75.0% left` },
+		{ used: 100, total: "100", remaining: "0", expected: `[${"▁".repeat(12)}] 0.0% left` },
 		{ used: null, total: "0", remaining: "0", expected: "Remaining percentage unavailable" },
 	])("shows Credit percentages without confusing full, empty and unknown balances: $used", ({ used, total, remaining, expected }) => {
 		for (const view of ["account", "status"] as const) {
@@ -127,14 +127,14 @@ describe("Usage and Status presentation", () => {
 			const rows = usagePresentationRows(m).map(stripTerminalSequences);
 			const index = rows.findIndex((row) => row.startsWith("Subscription Credits:"));
 			expect(rows[index]).toContain(expected);
-			expect(rows[index + 1]).toContain(`${remaining} / ${total} Credits left`);
+			expect(rows.join("\n")).not.toContain(`${remaining} / ${total} Credits left`);
 			if (used === null) expect(rows.join("\n")).not.toMatch(/\d+(?:\.\d+)?% left/u);
 		}
 	});
-	it("preserves Credit precision and hides unknown bucket amounts", () => {
+	it("shows percentages instead of raw Credit amounts and hides unknown buckets", () => {
 		const m = model(); m.account.snapshot!.plan.family = "token"; m.account.snapshot!.quota.windows = [];
 		m.account.snapshot!.quota.credit_buckets = [{ type: "topup", total: "9007199254740993", remaining: "9007199254740992", used_percent: 0, resets_at_ms: null, expires_at_ms: null }, { type: "future", unsupported: true, total: "0", remaining: "0", used_percent: null, resets_at_ms: null, expires_at_ms: null }];
-		const rendered = usagePresentationRows(m).join("\n"); expect(rendered).toContain("9,007,199,254,740,993"); expect(rendered).toContain("Unsupported bucket type: future");
+		const rendered = usagePresentationRows(m).join("\n"); expect(rendered).toContain("100.0% left"); expect(rendered).not.toContain("9,007,199,254,740,993"); expect(rendered).not.toContain("9,007,199,254,740,992"); expect(rendered).toContain("Unsupported bucket type: future");
 	});
 	it("reuses ANSI stripping for historical plugin and skill names", () => {
 		const m = model("overview");

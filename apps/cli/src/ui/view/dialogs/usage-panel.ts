@@ -25,8 +25,8 @@ const safe = (text: string): string => stripAnsi(text).replace(/[\u0000-\u001f\u
 function remainingQuota(usedPercent: number | null): string {
 	if (usedPercent === null) return "Remaining percentage unavailable";
 	const remaining = 100 - usedPercent,
-		filled = Math.round(remaining / 5);
-	return `[${theme.fg("accent", "█".repeat(filled))}${theme.fg("dim", "░".repeat(20 - filled))}] ${remaining.toFixed(1)}% left`;
+		filled = Math.round((remaining / 100) * 12);
+	return `[${theme.fg("accent", "▆".repeat(filled))}${theme.fg("dim", "▁".repeat(12 - filled))}] ${remaining.toFixed(1)}% left`;
 }
 
 function accountRows(state: AccountUsageState, cached = false): string[] {
@@ -81,7 +81,6 @@ function accountRows(state: AccountUsageState, cached = false): string[] {
 				bucket.type === "subscription" ? "Subscription Credits:" : `Top-up ${index + 1}:`,
 				remainingQuota(bucket.used_percent),
 			),
-			field("", `${count(BigInt(bucket.remaining))} / ${count(BigInt(bucket.total))} Credits left`),
 		);
 		if (bucket.resets_at_ms !== null) lines.push(field("", `Resets ${dateTime(bucket.resets_at_ms)}`));
 		lines.push(field("", `Expires ${dateTime(bucket.expires_at_ms)}`));
