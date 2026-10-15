@@ -755,6 +755,17 @@ export {
 export { buildStepThemeOptions, runStepThemePrompt, type StepThemeOption } from "./step/theme-prompt.ts";
 export { createStepToolProfile } from "./step/tool-profile.ts";
 export { resolveStepTraceHeaderBaseUrls } from "./step/trace-headers.ts";
+export { decodePlanUsage, PlanUsageController, resolvePlanUsageAccount } from "./step/usage/account.ts";
+export { overviewDates, scanUsageOverview } from "./step/usage/activity.ts";
+export type { StepUsageHost } from "./step/usage/commands.ts";
+export { collectSessionUsage } from "./step/usage/session.ts";
+export type {
+	AccountUsageState,
+	PlanUsageSnapshot,
+	UsageOverview,
+	UsagePresentation,
+	UsageStatus,
+} from "./step/usage/types.ts";
 export {
 	resolveStepCodeVersion,
 	STEPCODE_BUILD_VERSION_ENV,
