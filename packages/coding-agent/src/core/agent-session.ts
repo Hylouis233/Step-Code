@@ -127,8 +127,7 @@ import { type BashOperations, createLocalBashOperations } from "./tools/bash.ts"
 import { createAllToolDefinitions } from "./tools/index.ts";
 import { createToolDefinitionFromAgentTool } from "./tools/tool-definition-wrapper.ts";
 import { boundToolResultContent } from "./tools/tool-output.ts";
-import { collectSessionUsage } from "./usage-projection.ts";
-import { addUsageToTotals, createUsageTotals, getAutoClmUsage } from "./usage-totals.ts";
+import { addUsageToTotals, createUsageTotals, entryUsage } from "./usage-totals.ts";
 
 export { type ParsedSkillBlock, parseSkillBlock } from "../utils/skill-block.ts";
 
@@ -4006,8 +4005,7 @@ export class AgentSession {
 	 * actually billed across the session.
 	 */
 	getSessionStats(): SessionStats {
-		const entries = this.sessionManager.getEntries(),
-			tokens = collectSessionUsage(entries);
+		const entries = this.sessionManager.getEntries();
 		let userMessages = 0;
 		let assistantMessages = 0;
 		let toolResults = 0;
@@ -4016,11 +4014,7 @@ export class AgentSession {
 		const usageTotals = createUsageTotals();
 
 		for (const entry of entries) {
-			const maintenanceUsage = getAutoClmUsage(entry);
-			if (maintenanceUsage) addUsageToTotals(usageTotals, maintenanceUsage);
-			if ((entry.type === "branch_summary" || entry.type === "compaction") && entry.usage) {
-				addUsageToTotals(usageTotals, entry.usage);
-			}
+			addUsageToTotals(usageTotals, entryUsage(entry).raw);
 			if (entry.type !== "message") continue;
 			totalMessages++;
 			const message = entry.message;
@@ -4028,16 +4022,12 @@ export class AgentSession {
 				userMessages++;
 			} else if (message.role === "toolResult") {
 				toolResults++;
-				if (message.usage) {
-					addUsageToTotals(usageTotals, message.usage);
-				}
 			} else if (message.role === "assistant") {
 				assistantMessages++;
 				const assistantMsg = message as AssistantMessage;
 				if (Array.isArray(assistantMsg.content)) {
 					toolCalls += assistantMsg.content.filter((c) => c.type === "toolCall").length;
 				}
-				addUsageToTotals(usageTotals, assistantMsg.usage);
 			}
 		}
 
@@ -4050,11 +4040,11 @@ export class AgentSession {
 			toolResults,
 			totalMessages,
 			tokens: {
-				input: tokens.input - tokens.cacheRead - tokens.cacheWrite,
-				output: tokens.output,
-				cacheRead: tokens.cacheRead,
-				cacheWrite: tokens.cacheWrite,
-				total: tokens.total,
+				input: usageTotals.input,
+				output: usageTotals.output,
+				cacheRead: usageTotals.cacheRead,
+				cacheWrite: usageTotals.cacheWrite,
+				total: usageTotals.input + usageTotals.output + usageTotals.cacheRead + usageTotals.cacheWrite,
 			},
 			cost: usageTotals.cost,
 			contextUsage: this.getContextUsage(),

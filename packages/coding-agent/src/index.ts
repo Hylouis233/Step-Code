@@ -441,7 +441,12 @@ export {
 	type ProjectTrustStoreEntry,
 	type ProjectTrustUpdate,
 } from "./core/trust-manager.ts";
-export { addUsageToTotals, createUsageTotals, getUsageCostBreakdown } from "./core/usage-totals.ts";
+export {
+	addUsageToTotals,
+	collectSessionUsage,
+	createUsageTotals,
+	getUsageCostBreakdown,
+} from "./core/usage-totals.ts";
 export {
 	createStepExtension,
 	createStepExtensionInline,
@@ -758,7 +763,6 @@ export { resolveStepTraceHeaderBaseUrls } from "./step/trace-headers.ts";
 export { decodePlanUsage, PlanUsageController, resolvePlanUsageAccount } from "./step/usage/account.ts";
 export { overviewDates, scanUsageOverview } from "./step/usage/activity.ts";
 export type { StepUsageHost } from "./step/usage/commands.ts";
-export { collectSessionUsage } from "./step/usage/session.ts";
 export type {
 	AccountUsageState,
 	PlanUsageSnapshot,

@@ -1,6 +1,7 @@
 import {
 	type AccountUsageState,
 	type ExtensionCommandContext,
+	stripAnsi,
 	theme,
 	type UsagePresentation,
 } from "@step-harness/coding-agent";
@@ -19,7 +20,7 @@ const dateTime = (ms: number | null): string =>
 				timeZoneName: "shortOffset",
 			}).format(ms);
 const field = (name: string, value: string): string => `${name.padEnd(22)} ${value}`;
-const safe = (text: string): string => text.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/gu, "");
+const safe = (text: string): string => stripAnsi(text).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/gu, "");
 
 function accountRows(state: AccountUsageState, remaining = false): string[] {
 	const snapshot = state.snapshot,

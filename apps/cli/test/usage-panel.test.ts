@@ -18,6 +18,15 @@ describe("Usage and Status presentation", () => {
 		m.account.snapshot!.quota.credit_buckets = [{ type: "topup", total: "9007199254740993", remaining: "9007199254740992", used_percent: 0, resets_at_ms: null, expires_at_ms: null }, { type: "future", unsupported: true, total: "0", remaining: "0", used_percent: null, resets_at_ms: null, expires_at_ms: null }];
 		const rendered = usagePresentationRows(m).join("\n"); expect(rendered).toContain("9,007,199,254,740,993"); expect(rendered).toContain("Unsupported bucket type: future");
 	});
+	it("reuses ANSI stripping for historical plugin and skill names", () => {
+		const m = model("overview");
+		m.overview = { days: [{ date: "2026-10-13", tokens: 1, chats: 1 }], tokens: 1, chats: 1, activeDays: 1,
+			reasoning: [], discoveredSkills: 1, usedSkills: 1, topResources: [["\x1b[31m$example\x1b[0m", 1]], limited: [], scope: "all" };
+		const rows = usagePresentationRows(m).map(stripTerminalSequences).join("\n");
+		expect(rows).toContain("$example");
+		expect(rows).not.toContain("[31m");
+	});
+
 	it("fits narrow terminals, keeps only the documented tab shortcuts and scrolls", () => {
 		initTheme("step-blue"); const m = model(), close = vi.fn(), panel = new UsagePanel(m, vi.fn(), close, () => 18);
 		for (const width of [24, 60, 120]) for (const row of panel.render(width)) expect(visibleWidth(row)).toBeLessThanOrEqual(width);

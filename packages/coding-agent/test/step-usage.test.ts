@@ -5,11 +5,11 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SessionEntry, SessionHeader } from "../src/core/session-manager.ts";
 import { createUsageLineage } from "../src/core/usage-lineage.ts";
-import { decodePlanUsage, PlanUsageController, resolvePlanUsageAccount } from "../src/step/usage/account.ts";
+import { collectSessionUsage } from "../src/core/usage-totals.ts";
+import { decodePlanUsage, PlanUsageController, resolvePlanUsageAccount, usageText } from "../src/step/usage/account.ts";
 import { type ActivityScanOptions, scanActivity } from "../src/step/usage/activity-engine.ts";
 import { parseUsageCommand } from "../src/step/usage/commands.ts";
 import { projectUsageJson, UsageProjectionLimit } from "../src/step/usage/json-projection.ts";
-import { collectSessionUsage } from "../src/step/usage/session.ts";
 import type { PlanAccountContext } from "../src/step/usage/types.ts";
 
 const roots: string[] = [];
@@ -120,6 +120,12 @@ describe("usage totals and bounded projection", () => {
 		expect(got.output).toBe(26);
 		expect(got.cacheHit).toBeCloseTo(47 / 252);
 	});
+	it("reuses ANSI stripping before bounding account and status labels", () => {
+		expect(usageText("Plan \x1b[31mPro\x1b[0m\n")).toBe("Plan Pro");
+		expect(usageText("\x1b]8;;https://example.com\x07Pro\x1b]8;;\x07")).toBe("Pro");
+		expect(usageText("x".repeat(300))).toHaveLength(256);
+	});
+
 	it("keeps invalid and missing usage separate from real zero", () => {
 		const entries = [row("valid", 0, 0), { type: "message", message: { role: "assistant" } }, row("bad", -1, 0)];
 		expect(collectSessionUsage(entries)).toMatchObject({ total: 0, missing: 1, invalid: 1, cacheHit: null });

@@ -3,8 +3,8 @@ import { constants, type Dir } from "node:fs";
 import { lstat, mkdir, open, opendir, realpath, rename, stat, unlink } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import lockfile from "proper-lockfile";
+import { entryUsage, normalizeUsage } from "../../core/usage-totals.ts";
 import { projectUsageJson, UsageProjectionLimit } from "./json-projection.ts";
-import { entryUsage, normalizeUsage } from "./session.ts";
 import type { UsageOverview } from "./types.ts";
 
 type Row = Record<string, unknown>;

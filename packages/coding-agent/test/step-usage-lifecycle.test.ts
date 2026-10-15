@@ -34,8 +34,13 @@ function fixture() {
 		ui: { notify: vi.fn() },
 	} as unknown as ExtensionCommandContext;
 	const pi = {
-		on: (event: string, callback: (event: unknown, ctx: ExtensionContext) => unknown) =>
-			handlers.set(event, callback),
+		on: (event: string, callback: (event: unknown, ctx: ExtensionContext) => unknown) => {
+			const previous = handlers.get(event);
+			handlers.set(event, async (value, context) => {
+				await previous?.(value, context);
+				return callback(value, context);
+			});
+		},
 		appendEntry: vi.fn(),
 	} as unknown as ExtensionAPI;
 	const account = new PlanUsageController(() => ({
@@ -136,6 +141,38 @@ describe("usage command lifecycle", () => {
 		f.finish();
 		await pending;
 	});
+	it("keeps recorder hooks and command teardown active in the same session lifecycle", async () => {
+		const f = fixture();
+		let replacing = false,
+			closed = false;
+		f.host.resources = () => {
+			if (replacing) expect(closed).toBe(true);
+			return { agents: [], skills: [{ name: "example", filePath: "/work/SKILL.md" }] };
+		};
+		await f.handlers.get("session_start")!({}, f.ctx);
+		await f.handlers.get("before_agent_start")!({}, f.ctx);
+		expect(f.pi.appendEntry).toHaveBeenCalledWith(
+			"step.activity_capabilities",
+			expect.objectContaining({ sessionId: "first" }),
+		);
+		expect(vi.mocked(f.pi.appendEntry).mock.calls.filter(([type]) => type === "step.activity")).toHaveLength(1);
+		const pending = f.commands.usage("account", f.ctx);
+		const close = f.presentation().onClose;
+		f.presentation().onClose = () => {
+			closed = true;
+			close?.();
+		};
+		replacing = true;
+		f.changeSession();
+		await f.handlers.get("session_start")!({}, f.ctx);
+		await pending;
+		expect(f.pi.appendEntry).toHaveBeenCalledWith(
+			"step.activity_capabilities",
+			expect.objectContaining({ sessionId: "second" }),
+		);
+		expect(vi.mocked(f.pi.appendEntry).mock.calls.filter(([type]) => type === "step.activity")).toHaveLength(2);
+	});
+
 	it("uses the explicit RPC sink and does not send command output as an assistant message", async () => {
 		const f = fixture();
 		const rpc = { ...f.ctx, mode: "rpc" } as ExtensionCommandContext;

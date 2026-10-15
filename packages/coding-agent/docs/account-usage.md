@@ -32,6 +32,12 @@ Account responses have a 30-second memory cache and a 5-minute display lifetime.
 
 RPC command output uses `extension_ui_request` notifications. Other noninteractive CLI modes use stderr, keeping protocol stdout clear. SDK embedders can use `PlanUsageController`, `scanUsageOverview`, `collectSessionUsage` and the exported presentation types; a custom command host supplies its own presenter/output sink.
 
+## Implementation boundaries
+
+The existing `core/usage-totals.ts` owns entry selection and token validation for session statistics, Account and Overview. `AgentSession.getSessionStats()`, the cost breakdown and Account also share its accumulator; Overview groups validated increments by date and original project after deduplication. Account's complete input includes cache reads/writes; the existing session-stat input retains its provider convention and reports caches separately. Invalid token increments are skipped consistently, while absent/invalid cost does not discard otherwise valid tokens. No second session ledger is maintained.
+
+`step/usage/recording.ts` records activity through existing extension hooks and custom session entries. `commands.ts` owns command parsing and presentation lifecycle; `apps/cli` supplies the presenter and output sink. The bounded historical scanner/cache stays in the product layer because the ordinary session loader materializes complete messages and migrates legacy data. Fork/export hooks preserve origins when parent files disappear; removing those hooks would lose attribution. They do not change model context or dispatch behavior.
+
 ## Release verification
 
 Node packages emit `activity-worker.js` beside the chunk that creates it. Bun standalone builds explicitly embed `activity-worker.ts`; release archives still need the existing theme/assets. Test workers from a directory outside the checkout.

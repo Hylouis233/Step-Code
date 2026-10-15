@@ -1,14 +1,11 @@
-import { realpathSync } from "node:fs";
-import { resolve } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "../../core/extensions/types.ts";
+import { collectSessionUsage } from "../../core/usage-totals.ts";
 import { getStepPlanMode } from "../../features/step-plan.ts";
-import { getStepMcpToolOwner } from "../mcp.ts";
-import { getStepPluginSkillOwner } from "../plugins.ts";
 import { STEPCODE_VERSION } from "../version.ts";
 import { type PlanUsageController, usageText } from "./account.ts";
 import { overviewDates } from "./activity.ts";
-import { collectSessionUsage } from "./session.ts";
-import type { UsageOverview, UsagePresentation, UsageStatus, UsageView } from "./types.ts";
+import { registerUsageRecording } from "./recording.ts";
+import type { UsageOverview, UsagePresentation, UsageResources, UsageStatus, UsageView } from "./types.ts";
 
 export const USAGE_COMMAND_HELP = "Usage: /usage [overview|account] | /usage --refresh | /usage account --refresh";
 export function parseUsageCommand(args: string): { view: UsageView; refresh: boolean } | undefined {
@@ -20,7 +17,7 @@ export function parseUsageCommand(args: string): { view: UsageView; refresh: boo
 }
 export interface StepUsageHost {
 	account: PlanUsageController;
-	resources(): { agents: string[]; skills: { name: string; filePath: string }[] };
+	resources(): UsageResources;
 	scan(cwd: string, scope: "all" | "project", signal: AbortSignal): Promise<UsageOverview>;
 	present(ctx: ExtensionCommandContext, presentation: UsagePresentation): Promise<void>;
 	output?(ctx: ExtensionCommandContext, presentation: UsagePresentation): void;
@@ -36,119 +33,16 @@ export function registerStepUsageCommands(
 } {
 	let generation = 0,
 		closeView: (() => void) | undefined;
-	const discovered = new Set<string>();
 	let updateSession: ((ctx: ExtensionContext) => void) | undefined;
-	pi.on("agent_end", (_event, ctx) => {
-		updateSession?.(ctx);
-	});
-	const append = (type: string, data: unknown): void => {
-		try {
-			pi.appendEntry(type, data);
-		} catch {
-			/* Local recording never changes the task result. */
-		}
-	};
-	const collectResources = (ctx: ExtensionContext): void => {
-		if (!host) return;
-		const id = ctx.sessionManager.getSessionId();
-		for (const skill of host.resources().skills) {
-			const resourceId = resolve(skill.filePath);
-			if (discovered.has(resourceId)) continue;
-			discovered.add(resourceId);
-			append("step.activity", {
-				version: 1,
-				sessionId: id,
-				kind: "skill",
-				stage: "discovered",
-				resourceId,
-				name: `$${skill.name}`,
-				runId: `discovery:${resourceId}`,
-				startedAt: Date.now(),
-			});
-		}
-	};
-	pi.on("session_start", (_event, ctx) => {
+	pi.on("agent_end", (_event, ctx) => updateSession?.(ctx));
+	const close = (): void => {
 		generation++;
 		closeView?.();
 		host?.account.cancel();
-		discovered.clear();
-		if (host) {
-			append("step.activity_capabilities", {
-				version: 1,
-				sessionId: ctx.sessionManager.getSessionId(),
-				sessionRole:
-					process.env.STEPCODE_SUBAGENT_CHILD === "1" ||
-					ctx.sessionManager.getSessionId().startsWith("subagent-") ||
-					ctx.sessionManager.getSessionId().startsWith("workflow-")
-						? "subagent"
-						: "user",
-				parentCwd: process.env.STEPCODE_USAGE_PARENT_CWD,
-				parentSessionId: process.env.STEPCODE_USAGE_PARENT_SESSION_ID,
-				skillDiscovery: true,
-				skillActivation: true,
-				pluginInvocation: true,
-			});
-			collectResources(ctx);
-		}
-	});
-	pi.on("session_shutdown", () => {
-		generation++;
-		closeView?.();
-		host?.account.cancel();
-	});
-	pi.on("before_agent_start", (_event, ctx) => {
-		collectResources(ctx);
-	});
-	pi.on("usage_recorded", (event, ctx) => {
-		if (host && event.provenance.sessionId === ctx.sessionManager.getSessionId())
-			append("step.usage_provenance", {
-				version: 1,
-				...event.provenance,
-				originSessionId: event.provenance.sessionId,
-				usageEntryId: event.entryId,
-			});
-	});
-	pi.on("tool_execution_start", (event, ctx) => {
-		if (!host) return;
-		const sessionId = ctx.sessionManager.getSessionId(),
-			startedAt = Date.now(),
-			owner = getStepMcpToolOwner(event.toolName, ctx.sessionManager);
-		if (owner)
-			append("step.activity", {
-				version: 1,
-				sessionId,
-				runId: event.toolCallId,
-				startedAt,
-				kind: "plugin",
-				resourceId: owner,
-				name: `@${owner}`,
-			});
-		if (event.toolName !== "read" || typeof event.args?.path !== "string") return;
-		let path = resolve(ctx.cwd, event.args.path);
-		try {
-			path = realpathSync(path);
-		} catch {
-			/* An attempted invocation still counts as a run. */
-		}
-		const skill = host.resources().skills.find((s) => {
-			try {
-				return realpathSync(s.filePath) === path;
-			} catch {
-				return resolve(s.filePath) === path;
-			}
-		});
-		if (skill)
-			append("step.activity", {
-				version: 1,
-				sessionId,
-				runId: event.toolCallId,
-				startedAt,
-				kind: "skill",
-				resourceId: resolve(skill.filePath),
-				name: `$${skill.name}`,
-				pluginId: getStepPluginSkillOwner(path, ctx.sessionManager),
-			});
-	});
+	};
+	pi.on("session_start", close);
+	pi.on("session_shutdown", close);
+	registerUsageRecording(pi, host ? () => host.resources() : undefined);
 
 	const capture = (ctx: ExtensionCommandContext): UsageStatus => {
 		const model = ctx.model,

@@ -58,9 +58,9 @@ export interface AccountUsageState {
 	retryAt?: number;
 }
 
-import type { SessionUsage } from "../../core/usage-projection.ts";
+import type { SessionUsage } from "../../core/usage-totals.ts";
 
-export type { SessionUsage } from "../../core/usage-projection.ts";
+export type { SessionUsage } from "../../core/usage-totals.ts";
 export interface OverviewDay {
 	date: string;
 	tokens: number;
@@ -109,4 +109,9 @@ export interface UsagePresentation {
 	select(view: UsageView): void;
 	refresh(): void;
 	selectScope(scope: "all" | "project"): void;
+}
+
+export interface UsageResources {
+	agents: string[];
+	skills: { name: string; filePath: string }[];
 }

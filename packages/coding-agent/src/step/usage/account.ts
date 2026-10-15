@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { readStoredCredential } from "../../core/auth-storage.ts";
+import { stripAnsi } from "../../utils/ansi.ts";
 import { resolveStepLoginProfiles } from "../onboarding.ts";
 import type { AccountUsageState, LocalPlanAccount, PlanAccountContext, PlanUsageSnapshot } from "./types.ts";
 
@@ -73,7 +74,9 @@ export function resolvePlanUsageAccount(
 }
 
 export function usageText(value: string): string {
-	return value.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/gu, "").slice(0, 256);
+	return stripAnsi(value)
+		.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/gu, "")
+		.slice(0, 256);
 }
 function record(value: unknown): Record<string, unknown> {
 	if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid usage snapshot");
