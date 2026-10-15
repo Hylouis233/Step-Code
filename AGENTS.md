@@ -18,7 +18,49 @@ This file defines repository-wide rules for Step-Code. Before changing a directo
 - Organize architecture guidance around layers, responsibilities, and ownership. Verify paths, dependencies, commands, and defaults against current source, `package.json`, check scripts, and the relevant documentation.
 - Check implementation status before borrowing designs from other repositories. Do not copy obsolete paths, unimplemented plans, or private branch and release procedures.
 
-## 2. Layers and module entry points
+## 2. Project structure and dependency layers
+
+The current source layout is:
+
+```text
+apps/
+  cli/                         Process entry points and interactive host
+    src/args/                  Arguments and mode selection
+    src/bootstrap/             Startup composition
+    src/commands/              Top-level commands
+    src/modes/                 Mode routing
+    src/bun/                   Standalone binary entry
+    src/ui/                    UI host, runtime, and views
+packages/
+  agent-core/                  Generic Agent runtime
+    src/harness/               Sessions, context, compaction, and generic tools
+    src/search/                Generic search
+  coding-agent/                Coding product and SDK
+    src/core/                  Product session mechanisms, tools, and extensions
+    src/features/              Plan, task, subagent, workflow, goal, and cron
+    src/step/                  Step configuration, permissions, MCP, and integrations
+    src/modes/                 Non-interactive execution
+    src/server/                Host service adapters
+    src/theme/                 Product themes
+    src/render/                Rendering helpers
+    src/components/            Reusable product components
+    docs/                      Package APIs and usage
+    examples/                  SDK and extension examples
+    test/                      Product and session regressions
+  config/                      Product-neutral startup migrations
+  contracts/                   Independent host interfaces and wire frames
+  providers/                   Model access, adapters, catalogs, and credentials
+  telemetry/                   Telemetry contracts and reference implementations
+  tui/                         Terminal input, layout, and rendering
+docs/                          Repository-wide guides and runtime contracts
+scripts/                       Checks, generators, builds, and development tools
+infra/release/                 Local packaging and installer templates
+plugins/                       Built-in marketplace and plugin declarations
+.github/                       Public CI workflows and contribution templates
+.husky/                        Git hook definitions
+```
+
+Package manifests and `scripts/workspace-registry.json` define workspace membership; build outputs and installed dependencies are not source modules. Read the [development and collaboration guide](docs/development.md) for implementation practices and [testing policy](docs/testing.md) to select validation.
 
 Dependencies flow from product entry points toward foundational capabilities. Foundational packages must not depend on products or applications. The table defines allowed internal dependencies, not a requirement to depend on every listed package.
 
@@ -65,6 +107,11 @@ Dependencies flow from product entry points toward foundational capabilities. Fo
 - Relative TypeScript imports use `.ts` extensions and follow `check:ts-imports`. Source checked by the root configuration uses erasable syntax; do not add `enum`, parameter properties, or syntax requiring JavaScript emit.
 - Do not hand-edit `packages/providers/src/models.generated.ts` or provider data snapshots. Change generator scripts or inputs, then run the corresponding generation commands.
 - Preserve existing features and explicit user requirements. Do not delete functionality, weaken checks, or introduce unrelated refactors to make type or boundary checks pass.
+- Keep functions at one abstraction level; introduce helpers only when they own a meaningful operation, policy, or reusable behavior.
+- Validate external JSON, configuration, persisted data, and protocol inputs at their entry points. Narrow `unknown`; justify unavoidable `any` and type assertions rather than weaken checks or duplicate validation at every typed internal call.
+- Comments and JSDoc explain non-obvious behavior, failure, cancellation, and resource ownership; do not restate code or record an implementation conversation.
+- Handle failures at an explicit owner. Do not silently ignore invalid configuration, uncertain outcomes, or partially completed mutations. Best-effort catches must explain why ignoring the error is safe.
+- Cancellation and teardown must settle owned work, release resources, and prevent late callbacks from publishing into replaced sessions; requesting an abort alone does not prove cleanup completed.
 
 ## 5. Development and validation
 
@@ -72,19 +119,21 @@ Dependencies flow from product entry points toward foundational capabilities. Fo
 - Pin direct external dependencies to exact versions. Update the lockfile with dependency changes; do not update dependencies for documentation tasks or bypass lockfile commit checks.
 - Run source through root `pnpm step` or `./step-test.sh`. `./step-test.sh --no-env` removes listed provider environment credentials, but local user resources still require care.
 - After code changes, run root `pnpm run check`, inspect the full output, and fix errors. It includes Biome autofixes, type checks, and boundary checks; it does not run tests.
-- Run relevant tests when changing tests. Run Vitest from the owning package with `pnpm exec vitest --run <test-path>`; tui uses `node --test test/<name>.test.ts`.
+- Select tests for changed behavior using the [testing policy](docs/testing.md). Run Vitest from the owning package with `pnpm exec vitest --run <test-path>`; tui uses `node --test test/<name>.test.ts`.
 - Use `./test.sh` for repository tests and follow the pre-submission requirements in [CONTRIBUTING.md](CONTRIBUTING.md). It isolates user resources and credentials and builds offline if outputs are missing. Do not run a full Vitest suite that may activate real providers directly.
 - Unit and regression tests use faux providers, fixtures, mocks, and temporary directories. They must not read real accounts or consume paid model requests.
-- For documentation-only changes, verify relative links, directories, and commands and run `git diff --check`. Documentation changes alone do not require builds or model tests.
+- For documentation-only changes, verify relative links, directories, and commands and run `git diff --check`; follow the repository-wide pre-submission checks in `CONTRIBUTING.md`. Build only when a selected check needs artifacts; do not introduce real model calls for documentation validation.
 - When changing Agent Loop, sessions, tool permissions, providers, themes, or cross-process contracts, update the relevant `docs/`, package documentation, and affected `AGENTS.md` files.
 
 ## 6. Task execution and Git collaboration
 
 - Before editing, read affected files, local rules, and relevant documentation. For complex or high-risk work, explain steps, tools, acceptance criteria, and rollback. Continue reversible work already authorized by the user.
+- For concurrent work, name module and file owners, agree shared interfaces first, and assign one integration owner. Coordinate edits to public types, exports, manifests, and the lockfile; hand off changed behavior, validation results, and remaining issues using the [collaboration workflow](docs/development.md#collaboration-workflow).
 - Prefer existing tools in `scripts/`. Keep temporary validation scripts in temporary directories, outside product source.
 - Do not commit or push unless requested. Stage only explicit paths belonging to the task; do not use `git add .` or `git add -A`.
 - If the working directory contains another task's changes, use a separate worktree or touch only your files. Do not stash, clean, or revert other contributors' changes.
-- Do not use `git reset --hard`, `git checkout .`, `git clean -fd`, skip hooks, or force-push. If a Git operation conflicts with unrelated files, stop that operation and explain the conflict.
+- Do not use `git reset --hard`, `git checkout .`, `git clean -fd`, skip hooks, or raw `--force`. Rewrite a published task branch only when explicitly requested; record its live remote OID, use an exact `--force-with-lease`, and abort on remote movement. If a Git operation conflicts with unrelated files, stop that operation and explain the conflict.
+- Write commit subjects and bodies, PR/MR titles and descriptions, public issues, and review comments in English. Commit and PR/MR titles follow Conventional Commits; split commits by coherent responsibility, not to inflate the history.
 - Commits, PR/MR descriptions, issues, and comments must not include AI-client attribution, bot co-authors, or generated-by footers. Keep author / committer as the current human contributor's Git identity.
 - Report the changes, validation evidence, and anything still unverified. Keep delivery notes concise and specific.
 
