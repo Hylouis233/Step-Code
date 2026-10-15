@@ -13,6 +13,7 @@ import {
 	ambiguousPluginServerNames,
 	applyStepCodeConfigDefaults,
 	buildStepSystemPromptAppendix,
+	checkStepPlanBeforeInteractive,
 	configureHttpDispatcher,
 	createStepCode,
 	createStepCodeProviderInlineExtension,
@@ -268,6 +269,7 @@ const stepMainOptions: MainOptions = {
 		stepLogin: (host) =>
 			runStepLogin({
 				authPath: getStepAuthPath(),
+				planUsage: usageAccount,
 				createHost: () => host,
 				themeName: getStepDefaultTheme(),
 			}),
@@ -622,6 +624,7 @@ try {
 			} else {
 				const outcome = await runStepLogin({
 					authPath: getStepAuthPath(),
+					planUsage: usageAccount,
 					themeName: getStepDefaultTheme(),
 					noBrowser: loginArgs.includes("--no-browser"),
 				});
@@ -629,8 +632,9 @@ try {
 					syncStepLoginProfileEndpoint(getStepAuthPath());
 					process.stdout.write(`Signed in${outcome.profile ? ` with ${outcome.profile.title}` : ""}.\n`);
 					if (outcome.credentialsPath) process.stdout.write(`Credential written: ${outcome.credentialsPath}\n`);
+					if (outcome.warning) process.stderr.write(`${outcome.warning}\n`);
 				} else {
-					process.stderr.write("Sign-in cancelled. No credential was written.\n");
+					process.stderr.write("Sign-in cancelled.\n");
 					process.exitCode = 1;
 				}
 			}
@@ -693,21 +697,44 @@ try {
 					stdoutIsTTY: process.stdout.isTTY,
 					args: parsedInteractiveArgs,
 				});
+				const selectedProvider =
+					parsedInteractiveArgs.provider ??
+					(parsedInteractiveArgs.model?.includes("/")
+						? parsedInteractiveArgs.model.split("/", 1)[0]
+						: undefined) ??
+					process.env.STEP_PROVIDER ??
+					process.env.STEP_MODEL_PROVIDER ??
+					stepCodeConfig?.defaultProvider ??
+					stepPersistedDefaults.provider ??
+					STEP_DEFAULT_PROVIDER;
 				if (
-					!hasConfiguredStepCodeCredential(stepCodeConfig) &&
-					needsStepLoginBeforeInteractive({
+					interactiveStartup &&
+					selectedProvider === STEP_PROVIDER_ID &&
+					!hasExplicitStepCredential &&
+					!hasConfiguredStepCodeCredential(stepCodeConfig)
+				) {
+					const missingCredential = needsStepLoginBeforeInteractive({
 						authPath: getStepAuthPath(),
 						interactive: interactiveStartup,
-					})
-				) {
-					const outcome = await runStepLogin({
-						authPath: getStepAuthPath(),
-						themeName: getStepDefaultTheme(),
 					});
-					if (outcome.kind === "exit") {
-						shouldLaunchMain = false;
-					} else {
-						syncStepLoginProfileEndpoint(getStepAuthPath());
+					const check = missingCredential
+						? {}
+						: await checkStepPlanBeforeInteractive({
+								authPath: getStepAuthPath(),
+								interactive: interactiveStartup,
+								planUsage: usageAccount,
+							});
+					if (check.warning) process.stderr.write(`${check.warning}\n`);
+					if (missingCredential || check.requiredPlan) {
+						const outcome = await runStepLogin({
+							authPath: getStepAuthPath(),
+							planUsage: usageAccount,
+							requiredPlan: check.requiredPlan,
+							themeName: getStepDefaultTheme(),
+						});
+						if (outcome.warning) process.stderr.write(`${outcome.warning}\n`);
+						if (outcome.kind === "exit") shouldLaunchMain = false;
+						else syncStepLoginProfileEndpoint(getStepAuthPath());
 					}
 				}
 				if (shouldLaunchMain) {

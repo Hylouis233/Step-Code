@@ -5639,8 +5639,9 @@ export class InteractiveMode {
 				const outcome = await this.options.stepLogin(this.createStepLoginHost());
 				if (outcome.kind === "completed") {
 					await this.handleReloadCommand();
+					if (outcome.warning) this.showWarning(outcome.warning);
 				} else {
-					this.showStatus("Sign-in cancelled. No credential was written.");
+					this.showStatus("Sign-in cancelled.");
 				}
 			} catch (error: unknown) {
 				this.showError(`Failed to login to Step: ${error instanceof Error ? error.message : String(error)}`);

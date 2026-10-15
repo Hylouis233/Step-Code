@@ -601,6 +601,7 @@ export { STEP_INIT_PROMPT } from "./step/init-prompt.ts";
 export { prepareStepInstallation } from "./step/installation.ts";
 export { maybeUpdateStep, runStepUpdateCommand } from "./step/local-update.ts";
 export {
+	checkStepPlanBeforeInteractive,
 	isStepInteractiveLoginStartup,
 	needsStepLoginBeforeInteractive,
 	readStepLoginCredential,
