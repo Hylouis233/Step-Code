@@ -308,23 +308,20 @@ export class UsagePanel implements Component {
 }
 
 export async function showUsagePanel(ctx: ExtensionCommandContext, model: UsagePresentation): Promise<void> {
-	await ctx.ui.custom<void>(
-		(tui, _theme, _keys, done) => {
-			model.onChange = () => tui.requestRender();
-			model.onClose = () => done();
-			const panel = new UsagePanel(
-				model,
-				() => tui.requestRender(),
-				() => done(),
-				() => tui.terminal.rows,
-			);
-			return Object.assign(panel, {
-				dispose: () => {
-					model.onChange = undefined;
-					model.onClose = undefined;
-				},
-			});
-		},
-		{ overlay: true, overlayOptions: { width: "94%", maxHeight: "94%", anchor: "center" } },
-	);
+	await ctx.ui.custom<void>((tui, _theme, _keys, done) => {
+		model.onChange = () => tui.requestRender();
+		model.onClose = () => done();
+		const panel = new UsagePanel(
+			model,
+			() => tui.requestRender(),
+			() => done(),
+			() => tui.terminal.rows,
+		);
+		return Object.assign(panel, {
+			dispose: () => {
+				model.onChange = undefined;
+				model.onClose = undefined;
+			},
+		});
+	});
 }
