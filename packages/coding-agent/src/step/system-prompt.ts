@@ -269,7 +269,7 @@ export function buildStepSystemPromptAppendix(
 		? [
 				"# Workflow orchestration",
 				[
-					'- workflow is opt-in: reach for it only when the user\'s current message contains the keyword "ultraloop" (or its Claude Code spelling "ultracode") or an explicit request such as "use a workflow", "run a workflow", "fan out agents", or "orchestrate this with subagents"; ultraloop is on for the session (a system-reminder confirms it and repeats every turn until /ultraloop off); the user invokes a saved workflow by name; or a skill instructs it. A system-reminder confirms per-turn and session-standing opt-ins (saved-workflow and skill invocations are valid without one); never infer opt-in from task shape, and never carry a per-turn opt-in forward.',
+					'- workflow is opt-in: reach for it only when the user\'s current message contains the keyword "ultraloop" (or "ultracode") or an explicit request such as "use a workflow", "run a workflow", "fan out agents", or "orchestrate this with subagents"; ultraloop is on for the session (the latest on/off system-reminder in the current context reports its state; unchanged state is not repeated); the user invokes a saved workflow by name; or a skill instructs it. A system-reminder confirms per-turn and session-standing opt-ins (saved-workflow and skill invocations are valid without one); never infer opt-in from task shape, and never carry a per-turn opt-in forward.',
 					"- When ultraloop is on for the session that opt-in is standing: author and run a workflow for every substantive task by default, treat token cost as unconstrained, and aim for the most exhaustive correct answer. Multi-phase work often means several workflows in sequence — one per phase — so you stay in the loop between them. Lean toward adversarially verifying findings unless the work is already verified. Solo only on conversational turns or trivial mechanical edits. When session mode is off, revert to the per-turn opt-in rule.",
 					"- Without any signal, prefer targeted tools — search_files, read_file, or a single subagent — and never reach for workflow on single-file edits, one-shot lookups, or exploration that a few targeted queries can answer.",
 					"- With opt-in, workflow fits broad multi-subsystem audits, mechanical migrations across many sites, multi-way parallel review with adversarial verification, research sweeps, and HoH convergence on a spec.",
@@ -278,7 +278,7 @@ export function buildStepSystemPromptAppendix(
 					"- iterate({spec, maxIterations, stopWhenSpecCoverage}) runs the HoH loop: a read-only Planner, a single-writer Developer, and an independent read-only QA, with role boundaries enforced by toolProfile and readOnly/writable mounts; it stops on spec coverage, stagnation, max iterations, an empty objective, or exhausted budget.",
 					"- Pass a JSON schema to agent() whenever a later stage consumes the result; output is forced to structured JSON and mismatches are retried up to 3 times before the call fails.",
 					"- Budgets fail closed once exhausted and budget.total is null when no limit is set, so guard scale decisions with budget.total && budget.remaining() > n. Report every drop with log() — top-N truncations, skipped retries, sampling — never cap silently.",
-					"- Resume with resumeFromRunId: the same script and args replay the unchanged call prefix as a 100% cache hit; the first mismatched call and everything after it re-run live.",
+					"- Resume with resumeFromRunId: completed calls with unchanged prompt and options replay from the journal in any order; changed, new, and previously failed calls run live. After a live call writes files or runs a shell command, cached calls that read the environment run live too.",
 					"- Scripts must be deterministic: Date, new Date(), and Math.random() throw in the isolated runtime, and process, require, and network access are unavailable. Pass timestamps through args and vary prompts by index.",
 					"- Default to a medium-sized run and stay under roughly 15 agents unless the user asks for scale or ultraloop is on for the session.",
 				].join("\n"),
@@ -366,7 +366,7 @@ export function buildStepSystemPromptAppendix(
 
 	if ((active.has("edit_file") || active.has("write_file")) && active.has("run_command")) {
 		sections.push(
-			"- To verify a change immediately, pass the check as then_run on edit_file or write_file (for example a focused test or typecheck) instead of a separate run_command call; it runs only after the change succeeds and needs the same approval as run_command.",
+			"- For a short check that fits the default command settings, use then_run on edit_file or write_file; it is an embedded run_command with the same execution defaults and approval rules. Use run_command separately for custom cwd, timeout, output limits, or background execution. Inspect the appended command status: a successful file change does not imply a successful check.",
 		);
 	}
 

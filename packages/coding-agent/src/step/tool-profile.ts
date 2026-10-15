@@ -9,7 +9,7 @@
 
 import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { closeSync, openSync } from "node:fs";
+import { closeSync, createWriteStream, openSync } from "node:fs";
 import { mkdir as fsMkdir, readdir as fsReaddir, stat as fsStat, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -52,6 +52,7 @@ import { resolvePath } from "../utils/paths.ts";
 import {
 	getShellConfig,
 	getShellEnv,
+	killProcessTree,
 	spawnShellChild,
 	trackDetachedChildPid,
 	untrackDetachedChildPid,
@@ -87,7 +88,7 @@ const READ_FILE_DESCRIPTION =
 const WRITE_FILE_DESCRIPTION =
 	"Write full content to a file, creating parent directories if missing. Overwrites existing content — for existing files prefer edit_file.";
 const THEN_RUN_DESCRIPTION =
-	"Optional shell command to run after the change succeeds, from the initial working directory like run_command (e.g. a focused test or typecheck); its output and exit status are appended to this result, saving a separate run_command call. Requires the same approval as run_command.";
+	"Optional run_command command after a successful file change, including a no-op. Uses the initial working directory and run_command defaults for timeout and output. Approval covers both actions before editing; a denied call makes no change. If the command fails or times out after editing, the file change remains applied: inspect the appended command status. Use a separate run_command for custom cwd, timeout, output limits, or background execution.";
 
 const listDirectorySchema = Type.Object({
 	path: Type.Optional(Type.String({ description: `Directory path. ${PATH_DESCRIPTION} Defaults to '.'` })),
@@ -1078,48 +1079,68 @@ function mapRunCommandArgs(args: RunCommandInput, ctx?: ExtensionContext): { com
 	};
 }
 
+/** Preserve command recovery metadata when the Step output cap also shortens an error. */
+class StepCommandError extends ShellToolError {
+	readonly stepTruncated: boolean;
+
+	constructor(error: ShellToolError, maxChars: number) {
+		const limited = limitRunCommandText(error.message, maxChars, error.fullOutputPath);
+		super(limited.text, error.fullOutputPath);
+		this.cause = error;
+		this.stepTruncated = limited.truncated;
+	}
+}
+
 export interface StepThenRunDetails {
 	command: string;
 	exitCode: number | null;
 	timedOut: boolean;
+	/** Whether run_command's Step character cap shortened its inline output. */
 	stepTruncated: boolean;
+	/** Complete command output, retained by run_command when inline output is shortened. */
+	fullOutputPath?: string;
 }
 
 /**
- * Action fusion: run the `then_run` verification command after a successful
- * file mutation and fold its outcome into the mutation result.  The native
- * bash tool throws on non-zero exits; a failing check must not hide the
- * already-applied mutation, so those throws become part of the fused output
- * and the result is not marked as an error.  Caller cancellation still
- * propagates, carrying the mutation receipt.
+ * Run the embedded run_command after a successful file mutation. A failing
+ * command must not hide or repeat the already-applied mutation. Caller
+ * cancellation still propagates with the mutation receipt.
  */
 async function withThenRunResult(
 	result: AnyResult,
-	nativeBash: AnyToolDefinition,
+	runCommand: ToolDefinition<typeof runCommandSchema>,
 	command: string,
 	signal: AbortSignal | undefined,
 	ctx: ExtensionContext | undefined,
 ): Promise<AnyResult> {
-	const configuredTimeout = getContextValue<number>(ctx, "commandTimeoutMs");
 	const receipt = textFromResult(result);
 	let output: string;
 	let status: string | undefined;
 	let exitCode: number | null = 0;
 	let timedOut = false;
+	let stepTruncated = false;
+	let fullOutputPath: string | undefined;
 	try {
-		// No onUpdate: bash partials would reach the edit/write renderers.
-		const bashResult = await nativeBash.execute(
+		// No onUpdate: command partials would reach the edit/write renderers.
+		const commandResult = await runCommand.execute(
 			"step-then-run",
-			{ command, timeout: typeof configuredTimeout === "number" ? configuredTimeout / 1000 : undefined },
+			{ command },
 			signal,
 			undefined,
 			ctx as ExtensionContext,
 		);
-		output = textFromResult(bashResult);
+		output = textFromResult(commandResult);
+		const details = nativeDetails(commandResult);
+		stepTruncated = details.stepTruncated === true;
+		fullOutputPath = typeof details.fullOutputPath === "string" ? details.fullOutputPath : undefined;
 		status = "Command exited with code 0";
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
-		if (isCallerAborted(signal)) throw new Error(`${receipt}\n\nthen_run: $ ${command}\n${message}`);
+		if (isCallerAborted(signal)) {
+			throw new Error(`${receipt}\n\nthen_run: $ ${command}\n${message}`, { cause: error });
+		}
+		stepTruncated = error instanceof StepCommandError && error.stepTruncated;
+		fullOutputPath = error instanceof ShellToolError ? error.fullOutputPath : undefined;
 		const match = /(?:^|\n\n)(Command exited with code (\d+)|Command timed out after .+ seconds)$/u.exec(message);
 		if (match) {
 			output = message.slice(0, match.index);
@@ -1131,14 +1152,21 @@ async function withThenRunResult(
 			exitCode = null;
 		}
 	}
-	const limited = withStepTextLimit("run_command", output || "(no output)", resolveStepMaxChars(undefined, ctx));
-	const thenRun: StepThenRunDetails = { command, exitCode, timedOut, stepTruncated: limited.truncated };
+	// run_command already bounded the output and preserved its log/status footer.
+	// Limiting it again here could discard the only reference to the full output.
+	const thenRun: StepThenRunDetails = {
+		command,
+		exitCode,
+		timedOut,
+		stepTruncated,
+		...(fullOutputPath ? { fullOutputPath } : {}),
+	};
 	return {
 		...result,
 		content: [
 			{
 				type: "text",
-				text: `${receipt}\n\n${thenRunMarker(command)}${limited.text}${status ? `\n\n${status}` : ""}`,
+				text: `${receipt}\n\n${thenRunMarker(command)}${output || "(no output)"}${status ? `\n\n${status}` : ""}`,
 			},
 		],
 		details: { ...nativeDetails(result), thenRun },
@@ -1374,17 +1402,37 @@ async function startBackgroundCommand(
 	const logPath = path.join(os.tmpdir(), `step-run-bg-${process.pid}-${randomUUID().slice(0, 8)}.log`);
 	const logFd = openSync(logPath, "a", 0o600);
 	let child: ChildProcess;
+	const pipeLog = process.platform === "win32";
 	try {
 		child = spawnShellChild(shellConfig, command, {
 			cwd: commandCwd,
 			env: getShellEnv(options.agentDir),
-			stdout: logFd,
-			stderr: logFd,
+			stdout: pipeLog ? "pipe" : logFd,
+			stderr: pipeLog ? "pipe" : logFd,
 		});
-	} finally {
-		// The child holds its own duplicated descriptors after spawn.
+	} catch (error) {
+		closeSync(logFd);
+		throw error;
+	}
+	if (pipeLog) {
+		// MSYS/Git Bash can fail when Windows file descriptors are inherited directly.
+		// Drain pipes into a parent-owned stream; preserve backpressure and close only
+		// after both child output streams have finished.
+		const log = createWriteStream(logPath, { fd: logFd, autoClose: true });
+		log.on("error", () => {
+			if (child.pid !== undefined) killProcessTree(child.pid);
+			child.stdout?.destroy();
+			child.stderr?.destroy();
+		});
+		child.stdout?.pipe(log, { end: false });
+		child.stderr?.pipe(log, { end: false });
+		child.once("close", () => log.end());
+		child.once("error", () => log.destroy());
+	} else {
+		// Unix children hold their own duplicated descriptors after spawn.
 		closeSync(logFd);
 	}
+
 	await new Promise<void>((resolve, reject) => {
 		child.once("spawn", () => resolve());
 		child.once("error", (error) => reject(error));
@@ -1562,7 +1610,7 @@ export function createStepToolProfile(cwd: string, options: StepToolProfileOptio
 		) => {
 			const result = await executeStepWriteFile(args, cwd, options.write, signal, ctx);
 			const thenRun = readThenRunCommand(args);
-			return thenRun === undefined ? result : withThenRunResult(result, nativeBash, thenRun, signal, ctx);
+			return thenRun === undefined ? result : withThenRunResult(result, runCommand, thenRun, signal, ctx);
 		},
 		renderResult: withThenRunRenderResult(writeFileBase.renderResult as Renderer["renderResult"]),
 	} as AnyToolDefinition;
@@ -1583,7 +1631,7 @@ export function createStepToolProfile(cwd: string, options: StepToolProfileOptio
 		execute: async (toolCallId, args, signal, onUpdate, ctx) => {
 			const result = await executeStepEdit(nativeEdit, toolCallId, args, cwd, options.edit, signal, onUpdate, ctx);
 			const thenRun = readThenRunCommand(args);
-			return thenRun === undefined ? result : withThenRunResult(result, nativeBash, thenRun, signal, ctx);
+			return thenRun === undefined ? result : withThenRunResult(result, runCommand, thenRun, signal, ctx);
 		},
 		renderCall: nativeEdit.renderCall
 			? (args, theme, context) =>
@@ -1632,8 +1680,7 @@ export function createStepToolProfile(cwd: string, options: StepToolProfileOptio
 				return applyStepTextLimit(result, "run_command", maxChars);
 			} catch (error) {
 				if (error instanceof ShellToolError) {
-					const limited = limitRunCommandText(error.message, maxChars, error.fullOutputPath);
-					if (limited.truncated) throw new Error(limited.text, { cause: error });
+					throw new StepCommandError(error, maxChars);
 				}
 				throw error;
 			}

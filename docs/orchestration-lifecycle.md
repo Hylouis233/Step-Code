@@ -23,10 +23,13 @@ capability is registered, use these commands in the interactive editor:
 `/ultraloop` is an exact alias. Both names complete `on`, `off`, `status`, and
 `help`, and share one state in the workflow extension. Bare commands, `help`,
 and `status` leave that state unchanged. Enabling session mode projects
-`Ultracode on` into the status line; disabling it clears the projection. A
-session boundary re-seeds the mode from the `ultracodeDefault` setting, which
-defaults to `false`, so a session starts opted-out unless the setting turns it
-on. The UI reads this state from the extension.
+`Ultracode on` into the status line; disabling it clears the projection. The
+latest on/off choice on the active session branch is stored in its journal and
+restored when reopening or navigating the session tree. Sibling branches cannot
+grant standing consent. If the selected branch has no saved choice, a session
+boundary seeds it from `ultracodeDefault`, which defaults to `false`. A saved
+`off` choice takes precedence over a configured `true` default. Session commands
+do not change global or project settings; the UI reads state from the extension.
 
 For one turn, send `ultracode: <task>` or `ultraloop: <task>` in the TUI, or pass
 it as a launch prompt, for example:
@@ -41,23 +44,38 @@ prompt's `+500k` or `+1.5m` directive supplies a default token budget for its
 workflow calls. Saved workflow invocations and skills can also authorize
 workflow use.
 
-Capability discovery is separate from consent. When workflows are registered,
-the model receives guidance that maps both names to `workflow` and states the
-current session mode and tool-profile availability. `find_tools` only searches
-tools; it does not activate session mode or expand tool access. Registration,
-welcome tips, and discovery guidance do not authorize workflow use. The guidance
-does not replace the dynamic system prompt, so active-tool guidance can refresh
-when active tools change. The `ultraloop-opt-in` reminder remains tied to a per-turn or
-session signal. Opt-in is a model-guidance and journaling contract; off-consent
-calls are recorded, not rejected by a hard permission gate. Tool permissions
-and model thinking settings remain separate from this mode.
+Capability discovery is separate from consent. Welcome tips, slash completion,
+and command help expose the controls to users. The workflow tool description
+explains both names and the opt-in rules to the model; ordinary opted-out turns
+do not append a capability tutorial. `find_tools` only searches tools; it does
+not activate session mode or expand tool access.
+
+Session-mode reminders follow the last runtime-authored state in the active
+context: entering the mode adds an on reminder, unchanged turns add nothing,
+and leaving an announced mode adds an off reminder that revokes standing consent.
+A new per-turn opt-in still gets its own scoped reminder. The real user message
+comes first, followed by the hidden runtime reminder. Internally these are custom
+messages; the provider conversion represents them as `user` messages.
+
+Session teardown revokes pending live-context edits before removing the private
+mirror. Mirror removal is best-effort when another process keeps a file locked;
+the canonical journal remains intact and session listener/resource cleanup continues.
+
+Compaction, live-context editing, or switching branches may remove a previous
+notice. The runtime reconciles the currently visible context and supplies a
+request-local mode reminder when needed, including an off transition during
+streaming. These fallback notices do not accumulate in stored session history.
+The dynamic system prompt still refreshes when active tools change. Opt-in is a
+model-guidance and journaling contract; off-consent calls are recorded, not
+rejected by a hard permission gate. Tool permissions and model thinking settings
+remain separate from this mode.
 
 A product run may contain multiple low-level attempts because of retries or
 context compaction. The opt-in and prompt budget survive those attempts and
 clear at `agent_settled`. The next submitted prompt replaces the prompt-specific
 state. Session mode survives settlement until `/ultracode off` (or
-`/ultraloop off`). A session boundary re-seeds it from the `ultracodeDefault`
-setting, which is `false` by default.
+`/ultraloop off`). Reopening or navigating a session restores only the active
+branch's saved choice, with the configured default as the fallback.
 
 The runtime checks cancellation before entering the VM and after it returns.
 A tool call whose signal was already aborted does not start a child agent.

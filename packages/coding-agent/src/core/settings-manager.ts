@@ -9,6 +9,7 @@ import { CONFIG_DIR_NAME, getAgentDir } from "../config.ts";
 import { type Language, normalizeLanguage, setActiveLanguage } from "../i18n/index.ts";
 import { normalizePath, resolvePath } from "../utils/paths.ts";
 import { stripBom } from "../utils/text.ts";
+import { type AutoClmSettings, resolveAutoClmSettings } from "./compaction/live-context/auto-options.ts";
 import type { ContextProjectionMode } from "./compaction/projection.ts";
 import { DEFAULT_HTTP_IDLE_TIMEOUT_MS, parseHttpIdleTimeoutMs } from "./http-dispatcher.ts";
 
@@ -16,7 +17,10 @@ export interface CompactionSettings {
 	enabled?: boolean; // default: true
 	reserveTokens?: number; // default: 16384
 	keepRecentTokens?: number; // default: 20000
-	contextProjection?: ContextProjectionMode; // default: "off" (step.compaction.contextProjection)
+	/** Projection mode: clm-v1 by default when automatic compaction is enabled. */
+	contextProjection?: ContextProjectionMode;
+	/** Host-triggered maintenance inside clm-v1; native compaction remains the fallback. */
+	autoClm?: Partial<AutoClmSettings>;
 }
 
 export interface BranchSummarySettings {
@@ -33,6 +37,7 @@ export interface ProviderRetrySettings {
 export interface RetrySettings {
 	enabled?: boolean; // default: true
 	maxRetries?: number; // default: 3
+	rateLimitMaxRetries?: number; // default: 3; independent of transient and schema retries
 	baseDelayMs?: number; // default: 2000 (exponential backoff: 2s, 4s, 8s)
 	provider?: ProviderRetrySettings;
 }
@@ -99,7 +104,7 @@ export interface Settings {
 	defaultProvider?: string;
 	defaultModel?: string;
 	defaultThinkingLevel?: ThinkingLevel;
-	ultracodeDefault?: boolean; // default: false - start every session with ultracode (multi-agent workflow) session mode on
+	ultracodeDefault?: boolean; // default: false - seed ultracode mode on branches without a saved on/off choice
 	language?: Language; // UI language for static chrome text: "en" (default) or "zh"
 	modelThinkingLevels?: Record<string, ThinkingLevel>; // per-model default thinking level overrides keyed by "provider/modelId"
 	transport?: TransportSetting; // default: "auto"
@@ -833,9 +838,9 @@ export class SettingsManager {
 	}
 
 	/**
-	 * Whether a new session starts with ultracode session mode already on.
-	 * Unset means false, which keeps every session opted-out until the user
-	 * runs `/ultracode on` (or sends a one-turn opt-in).
+	 * Default ultracode mode when the selected branch has no saved choice.
+	 * Only literal true seeds standing consent; a saved on/off entry is
+	 * restored by the workflow extension before consulting this fallback.
 	 */
 	getUltracodeDefault(): boolean {
 		// Only an explicit boolean true grants standing orchestration consent.
@@ -901,12 +906,28 @@ export class SettingsManager {
 	}
 
 	/**
-	 * Request-time lightweight context projection mode
-	 * (`step.compaction.contextProjection`). Defaults to "off"; unknown values
-	 * are treated as "off" so a bad config can never enable projection.
+	 * Selected context projection mode (`step.compaction.contextProjection`).
+	 * Defaults to CLM when compaction is enabled; explicit modes take precedence.
+	 * Disabling compaction also disables implicit CLM, while an explicit clm-v1
+	 * setting retains manual edits. Invalid values fail closed to "off".
 	 */
 	getContextProjectionMode(): ContextProjectionMode {
-		return this.settings.compaction?.contextProjection === "lightweight-v1" ? "lightweight-v1" : "off";
+		const mode = this.settings.compaction?.contextProjection;
+		if (mode === undefined) return this.getCompactionEnabled() ? "clm-v1" : "off";
+		return mode === "lightweight-v1" || mode === "clm-v1" ? mode : "off";
+	}
+
+	setContextProjectionMode(mode: ContextProjectionMode): void {
+		if (!this.globalSettings.compaction) {
+			this.globalSettings.compaction = {};
+		}
+		this.globalSettings.compaction.contextProjection = mode;
+		this.markModified("compaction", "contextProjection");
+		this.save();
+	}
+
+	getAutoClmSettings(): AutoClmSettings {
+		return resolveAutoClmSettings(this.settings.compaction?.autoClm);
 	}
 
 	getCompactionSettings(): {
@@ -947,10 +968,15 @@ export class SettingsManager {
 		this.save();
 	}
 
-	getRetrySettings(): { enabled: boolean; maxRetries: number; baseDelayMs: number } {
+	getRetrySettings(): { enabled: boolean; maxRetries: number; rateLimitMaxRetries: number; baseDelayMs: number } {
+		const rateLimitMaxRetries = this.settings.retry?.rateLimitMaxRetries;
 		return {
 			enabled: this.getRetryEnabled(),
 			maxRetries: this.settings.retry?.maxRetries ?? 3,
+			rateLimitMaxRetries:
+				rateLimitMaxRetries === undefined || !Number.isFinite(rateLimitMaxRetries)
+					? 3
+					: Math.max(0, Math.min(20, Math.floor(rateLimitMaxRetries))),
 			baseDelayMs: this.settings.retry?.baseDelayMs ?? 2000,
 		};
 	}

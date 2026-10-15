@@ -3,6 +3,7 @@ import type { AnthropicOptions } from "./api/anthropic-messages.ts";
 import type { OpenAICompletionsOptions } from "./api/openai-completions.ts";
 import type { OpenAIResponsesOptions } from "./api/openai-responses.ts";
 import type { AssistantMessageDiagnostic } from "./utils/diagnostics.ts";
+import type { ProviderErrorKind } from "./utils/error-kind.ts";
 import type { AssistantMessageEventStream } from "./utils/event-stream.ts";
 
 export type { AssistantMessageEventStream } from "./utils/event-stream.ts";
@@ -374,6 +375,13 @@ export interface AssistantMessage {
 	stopReason: StopReason;
 	deferred?: DeferredHandle;
 	errorMessage?: string;
+	/**
+	 * Structured failure class derived from the HTTP status and provider error code.
+	 * Undefined when the failure carried no machine-readable signal.
+	 */
+	errorKind?: ProviderErrorKind;
+	/** Server-requested backoff retained for session-level retries. */
+	retryAfterMs?: number;
 	rawStopReason?: string;
 	/**
 	 * Provider indication of whether the model explicitly ended its turn.
@@ -438,6 +446,11 @@ export interface Context {
 	systemPrompt?: string;
 	messages: Message[];
 	tools?: Tool[];
+	/**
+	 * Harness-provided input token estimate for this exact request, including system prompt and tools.
+	 * Used only for local context budgeting; leaves reported usage and billing unchanged.
+	 */
+	estimatedInputTokens?: number;
 }
 
 /**

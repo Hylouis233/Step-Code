@@ -44,6 +44,27 @@ If you ignore this document twice, or if you spam the tracker with agent-generat
 
 If you send a large volume of issues through automation, your GitHub account will be permanently blocked. No taksies backsies.
 
+## Commit and PR Conventions
+
+Write commit subjects and bodies, PR/MR titles and descriptions, public issues, and review comments in English. Commit and PR/MR titles follow Conventional Commits: `type(scope): summary`, with an optional scope. Use a concrete summary such as `fix(session): preserve queued input after cancellation`.
+
+Keep each commit focused on one coherent responsibility. Separate independent changes so reviewers can inspect them; do not add empty or artificial commits to increase the count. The author and committer remain the human contributor, as required by the attribution policy above.
+
+Follow the [development and collaboration guide](docs/development.md) for coding practices, concurrent ownership, error handling, and Git workflow. Use the [testing policy](docs/testing.md) to select behavior-level evidence while developing.
+
+## PR Review Checklist
+
+Use the [PR template](.github/pull_request_template.md) and replace its guidance with concrete evidence. Scale the description to the change, and explain any section that does not apply.
+
+- State the problem and resulting behavior. For bugs, include a reproducible trigger and explain the root cause.
+- Identify affected modules, public consumers, and changes to previously accepted inputs: configuration keys, environment variables, CLI arguments, provider responses, persisted sessions, RPC/SDK calls, and extension hooks.
+- For a changed default, removed fallback, or narrowed branch, describe who used the old behavior and their migration or escape path. A refactor accounts for the old path's feature inventory rather than silently losing it.
+- Treat system prompts, tool descriptions, reminders, and model-visible output as behavior. State who receives changed text, what it controls, and how the new behavior is verified.
+- Review public interfaces at both producer and consumer sides. Check old session data and error / cancellation behavior where relevant; document intentional compatibility changes.
+- Include exact validation commands and results, relevant platforms, and any skipped or unverified cases. Report pending CI as pending; a passing unit test alone does not prove a built CLI or protocol entry point works.
+- Explain user-visible snapshot changes and verify actual files, persisted state, or protocol output rather than only an agent's success message.
+- Confirm the diff contains only intended files, public examples use neutral data, and temporary handoff notes, private infrastructure, credentials, and AI attribution are absent.
+
 ## Before Submitting a PR
 
 Before submitting a PR:
@@ -54,6 +75,8 @@ npm run check
 ```
 
 Both must pass.
+
+These are repository-wide submission checks. During development, run focused checks for the changed behavior; do not repeat a passing check solely because a commit or push follows, unless files or relevant inputs changed. Inspect any modifications made by the formatter before staging or publishing.
 
 If you are adding a new provider to `packages/providers`, see `AGENTS.md` for required tests.
 
