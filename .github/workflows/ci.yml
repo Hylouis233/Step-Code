@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, fix/workflow-inline-script-not-shell]
   pull_request:
-    branches: [main]
+    branches: [main, upstream-main-d0ec996]
 
 concurrency:
   group: ci-${{ github.ref }}
