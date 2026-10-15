@@ -267,10 +267,11 @@ export function createUltraloopOptInExtension(options: UltraloopOptInExtensionOp
 			handler: async (args: string, ctx: ExtensionCommandContext) => {
 				const token = args.trim().toLowerCase();
 				if (token === "on") {
-					sessionMode = true;
+					// Persist first: a failed journal write must not change live consent.
 					pi.appendEntry(ULTRALOOP_SESSION_MODE_ENTRY, {
 						enabled: true,
 					} satisfies UltraloopSessionModeData);
+					sessionMode = true;
 					ctx.ui.setStatus("ultracode", "Ultracode on");
 					ctx.ui.notify(
 						"Ultracode is on for the session. Multi-agent workflows are authorized until /ultracode off or the session ends.",
@@ -279,10 +280,11 @@ export function createUltraloopOptInExtension(options: UltraloopOptInExtensionOp
 					return;
 				}
 				if (token === "off") {
-					sessionMode = false;
+					// Persist first: a failed journal write must not change live consent.
 					pi.appendEntry(ULTRALOOP_SESSION_MODE_ENTRY, {
 						enabled: false,
 					} satisfies UltraloopSessionModeData);
+					sessionMode = false;
 					ctx.ui.setStatus("ultracode", undefined);
 					ctx.ui.notify("Ultracode session mode is off. Use ultracode: <task> for one-turn opt-in.", "info");
 					return;

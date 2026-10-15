@@ -459,6 +459,29 @@ describe("createUltraloopOptInExtension", () => {
 		expect(startOrdinaryTurn(h)?.message?.customType).not.toBe("ultraloop-opt-in");
 	});
 
+	test("a failed mode write leaves live consent unchanged for on and off", async () => {
+		const h = harness();
+		install(h);
+		const appendEntry = h.api.appendEntry;
+		const failingWrite = () => {
+			throw new Error("journal write failed");
+		};
+		const ctx = makeCtx(h.notifications, h.statuses, h.contextEntries);
+		(h.api as { appendEntry: unknown }).appendEntry = failingWrite;
+		await expect(h.commands.get("ultracode")!.handler("on", ctx)).rejects.toThrow("journal write failed");
+		await h.commands.get("ultracode")!.handler("status", ctx);
+		expect(h.notifications.at(-1)?.message).toBe("Ultracode session mode: off.");
+		expect(h.statuses.has("ultracode")).toBe(false);
+
+		(h.api as { appendEntry: unknown }).appendEntry = appendEntry;
+		await h.commands.get("ultracode")!.handler("on", ctx);
+		(h.api as { appendEntry: unknown }).appendEntry = failingWrite;
+		await expect(h.commands.get("ultracode")!.handler("off", ctx)).rejects.toThrow("journal write failed");
+		await h.commands.get("ultracode")!.handler("status", ctx);
+		expect(h.notifications.at(-1)?.message).toBe("Ultracode session mode: on.");
+		expect(h.statuses.get("ultracode")).toBe("Ultracode on");
+	});
+
 	test("does not persist mode in settings or leak it to a new session", async () => {
 		const h = harness();
 		install(h);
