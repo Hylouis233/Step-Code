@@ -114,6 +114,7 @@ import { ModelRegistry } from "./model-registry.ts";
 import type { ModelRuntime } from "./model-runtime.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
 import { isRateLimitError, rateLimitDelay } from "./rate-limit.ts";
+import { readRequestUsage } from "./request-provenance.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
 import { exportSessionToJsonl } from "./session-export.ts";
 import type { BranchSummaryEntry, CompactionEntry, SessionEntry, SessionManager } from "./session-manager.ts";
@@ -1163,7 +1164,11 @@ export class AgentSession {
 				event.message.role === "toolResult"
 			) {
 				// Regular LLM message - persist as SessionMessageEntry
-				this.sessionManager.appendMessage(event.message);
+				const entryId = this.sessionManager.appendMessage(event.message);
+				if (event.message.role === "assistant" && this._extensionRunner?.hasHandlers("usage_recorded")) {
+					const provenance = readRequestUsage(event.message);
+					if (provenance) await this._extensionRunner.emit({ type: "usage_recorded", entryId, provenance });
+				}
 			}
 			// Other message types (bashExecution, compactionSummary, branchSummary) are persisted elsewhere
 

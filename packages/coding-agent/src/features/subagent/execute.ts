@@ -264,6 +264,8 @@ export async function executeSubagent(
 	},
 	laneRuntime?: StepSubagentLaneRuntime,
 ): Promise<AgentToolResult<StepSubagentDetails>> {
+	const parentCwd = ctx.cwd,
+		parentSessionId = ctx.sessionManager?.getSessionId?.();
 	const scope = params.agentScope ?? "user";
 	const discovery = await discoverStepAgents(ctx.cwd, {
 		agentDir: options.agentDir,
@@ -417,6 +419,8 @@ export async function executeSubagent(
 				emit(mode);
 			};
 			const child = await options.runner({
+				parentCwd,
+				parentSessionId,
 				agent,
 				task: task.task,
 				cwd: childCwd,

@@ -107,6 +107,8 @@ export interface StepSubagentRunResult {
 
 export interface StepSubagentRunInput {
 	onModelRequest?: (event: import("../core/rate-limit.ts").ModelRequestProgress) => void;
+	parentCwd?: string;
+	parentSessionId?: string;
 	agent: StepAgentConfig;
 	task: string;
 	cwd: string;
