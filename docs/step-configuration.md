@@ -187,6 +187,9 @@ On Windows the published bundle is downloaded directly and wrapped in a
 `steppage-mcp.cmd` launcher under `~/.local/bin`, because the POSIX installer
 script cannot run there; `step mcp prepare` probes that wrapper through
 `cmd /c` so no shell PATH change is required.
+`STEPCODE_STEPPAGE_INSTALLER_URL` can select a channel or mirror. Windows derives
+the sibling `latest/steppage-mcp.mjs` path with URL parsing and preserves the
+configured URL's authentication parameters and encoding.
 
 Preparation preserves credentials, custom server commands, global overrides,
 disabled servers, and intentionally uninstalled plugins. A global declaration

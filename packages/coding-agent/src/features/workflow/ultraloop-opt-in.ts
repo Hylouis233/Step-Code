@@ -11,7 +11,8 @@
  *      default workflow budget.
  *
  *   2) session-standing mode: the user turns on ultraloop for the whole
- *      session via /ultraloop on. A session-scoped system-reminder is
+ *      session via /ultraloop on, or a new session starts in it when the
+ *      `ultracodeDefault` setting is true. A session-scoped system-reminder is
  *      attached when the mode differs from the last state in the active
  *      context. Unchanged turns reuse it; turning off revokes standing consent.
  *
@@ -21,8 +22,14 @@
  * benign off-consent telemetry entries, cross-referenceable by toolCallId).
  */
 
-import type { ExtensionAPI, ExtensionCommandContext, ExtensionFactory } from "../../core/extensions/types.ts";
+import type {
+	ExtensionAPI,
+	ExtensionCommandContext,
+	ExtensionContext,
+	ExtensionFactory,
+} from "../../core/extensions/types.ts";
 import type { SessionEntry } from "../../core/session-manager.ts";
+import type { SettingsManager } from "../../core/settings-manager.ts";
 import { isWorkflowRegistrationEnabled } from "./registration-gate.ts";
 
 const ULTRALOOP_SESSION_MODE_ENTRY = "ultraloop-session-mode";
@@ -153,6 +160,12 @@ export interface UltraloopOptInExtensionOptions {
 	vmExecutor?: unknown;
 	/** Written each turn with the parsed "+500k" target (or undefined). */
 	turnState?: UltraloopTurnState;
+	/**
+	 * Live settings accessor. Session boundaries read `ultracodeDefault` only
+	 * when the selected branch has no saved choice. An explicit on/off entry
+	 * on that branch takes precedence; a missing accessor defaults to off.
+	 */
+	settings?: () => Pick<SettingsManager, "getUltracodeDefault"> | undefined;
 }
 
 /**
@@ -166,18 +179,25 @@ export function createUltraloopOptInExtension(options: UltraloopOptInExtensionOp
 
 		let optedInThisTurn = false;
 		let sessionMode = false;
+		let sessionDefault = false;
 		const setTurnBudget = (value: number | undefined): void => {
 			if (options.turnState) options.turnState.budgetTotal = value;
 		};
 
-		// Session boundaries restore only the latest mode entry from this session;
-		// sessions without a saved mode start opted-out.
-		pi.on("session_start", (_event, ctx) => {
-			sessionMode = persistedSessionMode(ctx.sessionManager.getEntries()) ?? false;
+		const restoreSessionMode = (ctx: ExtensionContext): void => {
+			// Flat session entries include sibling branches, which cannot grant consent.
+			sessionMode = persistedSessionMode(ctx.sessionManager.getBranch()) ?? sessionDefault;
 			optedInThisTurn = false;
 			setTurnBudget(undefined);
 			ctx.ui.setStatus("ultracode", sessionMode ? "Ultracode on" : undefined);
+		};
+
+		pi.on("session_start", (_event, ctx) => {
+			sessionDefault = options.settings?.()?.getUltracodeDefault() === true;
+			restoreSessionMode(ctx);
 		});
+		// Tree navigation replaces the selected path without emitting session_start.
+		pi.on("session_tree", (_event, ctx) => restoreSessionMode(ctx));
 
 		// BeforeAgentStartEventResult.message is appended after the real user input
 		// and retained in session history. Read the selected branch before deciding

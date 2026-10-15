@@ -53,6 +53,7 @@ Use `/trust` in interactive mode to save a project trust decision for future ses
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `theme` | string | `"dark"` | Theme name (`"dark"`, `"light"`, or custom) |
+| `language` | string | `"en"` | UI language for static chrome text (startup diagnostics, welcome block, footer, status row, status tips): `"en"` or `"zh"`. `/language` changes the global default; a trusted project setting takes precedence |
 | `externalEditor` | string | `$VISUAL`, then `$EDITOR`, then Notepad on Windows or `nano` elsewhere | Command for Ctrl+G external editor; takes precedence over environment variables |
 | `quietStartup` | boolean | `false` | Hide startup header |
 | `defaultProjectTrust` | string | `"ask"` | Fallback project trust behavior: `"ask"`, `"always"`, or `"never"`. Global setting only |
@@ -240,6 +241,7 @@ Windows paths in JSON must use forward slashes or escaped backslashes:
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `defaultTools` | string[] | - | Built-in tools enabled initially. When omitted, Step uses its standard defaults |
+| `ultracodeDefault` | boolean | `false` | Seed ultracode (multi-agent workflow) mode when the active session branch has no saved choice; explicit saved on/off choices take precedence |
 
 `defaultTools` selects the built-in tools enabled at startup. Extension and SDK custom tools remain enabled. Available built-ins are `read`, `bash`, `powershell`, `edit`, `write`, `grep`, `find`, and `ls`:
 
@@ -258,6 +260,14 @@ On Windows, select `powershell` instead of `bash`, or include both:
 ```
 
 An empty array starts with no built-in tools while preserving extension and SDK custom tools. `--tools` replaces this behavior with a strict allowlist for all tools, `--no-tools` disables all tools, and `--no-builtin-tools` disables the built-in defaults. `--exclude-tools` filters the resulting list. A project `defaultTools` array replaces the global array.
+
+`ultracodeDefault` seeds a new session or a selected branch without a saved mode choice. An absent or `false` key starts it off; literal boolean `true` starts it on. `/ultracode on` and `/ultracode off` (also available as `/ultraloop`) save a branch-local choice, which survives reopening and takes precedence over the configured default. A one-turn `ultracode: <task>` prompt does not change that standing choice:
+
+```json
+{
+  "ultracodeDefault": true
+}
+```
 
 ### Sessions
 
@@ -340,6 +350,7 @@ See [packages.md](packages.md) for package management details.
   "defaultProvider": "anthropic",
   "defaultModel": "claude-sonnet-4-20250514",
   "defaultThinkingLevel": "medium",
+  "language": "en",
   "modelThinkingLevels": {
     "anthropic/claude-sonnet-4-20250514": "high"
   },

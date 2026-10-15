@@ -97,6 +97,15 @@ test("bundle url derives from the installer url", () => {
 	);
 });
 
+test("bundle URL preserves mirror authentication, encoding, and fragment", () => {
+	expect(
+		stepPageBundleUrl({
+			STEPCODE_STEPPAGE_INSTALLER_URL:
+				"https://user:pass@mirror.example/a%20b/install.sh?token=abc%2F123&channel=preview#download",
+		}),
+	).toBe("https://user:pass@mirror.example/a%20b/latest/steppage-mcp.mjs?token=abc%2F123&channel=preview#download");
+});
+
 test("windows probes the cmd wrapper", () => {
 	const managed = join("/home/u", ".local", "bin", "steppage-mcp");
 	expect(stepPageCommandCandidates("win32", "/home/u")).toEqual([

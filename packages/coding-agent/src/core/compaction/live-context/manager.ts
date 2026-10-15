@@ -696,6 +696,11 @@ export class LiveContextManager {
 	dispose(): void {
 		this.disposed = true;
 		this.invalidate();
-		rmSync(this.mirrorDirectory, { recursive: true, force: true });
+		try {
+			rmSync(this.mirrorDirectory, { recursive: true, force: true });
+		} catch {
+			// The private mirror is disposable; its canonical journal is retained.
+			// A locked file must not prevent the owning session's remaining teardown.
+		}
 	}
 }

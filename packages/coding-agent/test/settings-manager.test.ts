@@ -377,6 +377,17 @@ describe("SettingsManager", () => {
 		});
 	});
 
+	describe("ultracodeDefault", () => {
+		it("defaults to false when unset", () => {
+			expect(SettingsManager.inMemory().getUltracodeDefault()).toBe(false);
+		});
+
+		it("reads the configured value", () => {
+			expect(SettingsManager.inMemory({ ultracodeDefault: true }).getUltracodeDefault()).toBe(true);
+			expect(SettingsManager.inMemory({ ultracodeDefault: false }).getUltracodeDefault()).toBe(false);
+		});
+	});
+
 	describe("externalEditor", () => {
 		const originalVisual = process.env.VISUAL;
 		const originalEditor = process.env.EDITOR;
@@ -594,6 +605,38 @@ describe("SettingsManager", () => {
 			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ sessionDir: "~/sessions" }));
 			const manager = SettingsManager.create(projectDir, agentDir);
 			expect(manager.getSessionDir()).toBe(join(homedir(), "sessions"));
+		});
+	});
+
+	describe("language setting", () => {
+		it("defaults to English when unset", () => {
+			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ theme: "dark" }));
+			const manager = SettingsManager.create(projectDir, agentDir);
+			expect(manager.getLanguage()).toBe("en");
+		});
+
+		it("round-trips through settings.json", async () => {
+			const settingsPath = join(agentDir, "settings.json");
+			writeFileSync(settingsPath, JSON.stringify({ theme: "dark" }));
+
+			const manager = SettingsManager.create(projectDir, agentDir);
+			manager.setLanguage("zh");
+			await manager.flush();
+
+			expect(manager.getLanguage()).toBe("zh");
+			const savedSettings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+			expect(savedSettings.language).toBe("zh");
+			// Other keys survive the write.
+			expect(savedSettings.theme).toBe("dark");
+
+			const reloaded = SettingsManager.create(projectDir, agentDir);
+			expect(reloaded.getLanguage()).toBe("zh");
+		});
+
+		it("falls back to English for an unknown persisted value", () => {
+			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ language: "klingon" }));
+			const manager = SettingsManager.create(projectDir, agentDir);
+			expect(manager.getLanguage()).toBe("en");
 		});
 	});
 

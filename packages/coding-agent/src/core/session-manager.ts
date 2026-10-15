@@ -11,6 +11,8 @@ import {
 	readdirSync,
 	readSync,
 	statSync,
+	truncateSync,
+	unlinkSync,
 	writeFileSync,
 } from "fs";
 import { readdir, stat } from "fs/promises";
@@ -1042,20 +1044,45 @@ export class SessionManager {
 		}
 	}
 
+	private persistenceFailure?: AggregateError;
+
 	private _appendEntry(entry: SessionEntry): void {
+		if (this.persistenceFailure) throw this.persistenceFailure;
 		const previousLeaf = this.leafId;
 		const previousFlushed = this.flushed;
+		const sessionFile = this.persist ? this.sessionFile : undefined;
+		const previousFile = sessionFile ? statSync(sessionFile, { throwIfNoEntry: false }) : undefined;
 		this.fileEntries.push(entry);
 		this.byId.set(entry.id, entry);
 		this.leafId = entry.id;
 		try {
 			this._persist(entry);
 		} catch (error) {
-			// A failed write must not activate unpersisted goal/context/control state.
 			this.fileEntries.pop();
 			this.byId.delete(entry.id);
 			this.leafId = previousLeaf;
 			this.flushed = previousFlushed;
+			try {
+				// A partial write or delayed close error can leave rejected controls
+				// in JSONL. Restore bytes as well as memory before allowing another append.
+				const currentFile = sessionFile ? statSync(sessionFile, { throwIfNoEntry: false }) : undefined;
+				if (previousFile && !currentFile) throw new Error("Session file disappeared during persistence rollback");
+				if (sessionFile && previousFile && currentFile) {
+					if (previousFile.dev !== currentFile.dev || previousFile.ino !== currentFile.ino) {
+						throw new Error("Session file was replaced during persistence rollback");
+					}
+					truncateSync(sessionFile, previousFile.size);
+				} else if (sessionFile && currentFile && !previousFile) {
+					// First flush creates with wx. EEXIST means another writer owns it.
+					if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) unlinkSync(sessionFile);
+				}
+			} catch (rollbackError) {
+				this.persistenceFailure = new AggregateError(
+					[error, rollbackError],
+					"Session persistence failed and could not be rolled back; repair the journal before continuing",
+				);
+				throw this.persistenceFailure;
+			}
 			throw error;
 		}
 	}

@@ -13,17 +13,31 @@ import {
 	createStepExtensionInline,
 	createStepGoalExtension,
 	type InlineExtension,
+	type SettingsManager,
 	type StepExtensionOptions,
+	type StepSettingsManager,
 	type StepTelemetryReporter,
 	type TraceHeaderPolicy,
 } from "@step-harness/coding-agent";
+
+/**
+ * Accessor for the live Step settings manager. Carries the product policy
+ * surface the Step extension persists (`getStepSettings`,
+ * `setEffectiveStepSettings`, shell overrides) plus the Pi settings the
+ * capabilities extension reads, such as `getUltracodeDefault`.
+ */
+export type StepSettingsAccessor = () =>
+	| (Pick<SettingsManager, "getUltracodeDefault"> &
+			Pick<StepSettingsManager, "getStepSettings" | "setEffectiveStepSettings"> &
+			Partial<Pick<StepSettingsManager, "getShellPath" | "getShellCommandPrefix">>)
+	| undefined;
 
 export interface StepExtensionFactoryDeps {
 	/** Shared telemetry runtime handed to every Step extension. */
 	telemetry: StepTelemetryReporter;
 	traceHeaderPolicy: TraceHeaderPolicy;
 	/** Accessor for the live Step settings manager (policy restore/persist). */
-	stepSettings: StepExtensionOptions["stepSettings"];
+	stepSettings: StepSettingsAccessor;
 	/** Account identity resolved lazily when `/feedback` is invoked. */
 	feedbackIdentity: StepExtensionOptions["feedbackIdentity"];
 	/** Initial Step permission policy parsed from CLI/runtime options. */
@@ -47,7 +61,7 @@ export function createStepExtensionFactories(deps: StepExtensionFactoryDeps): In
 			permission: deps.permission,
 			traceHeaderPolicy: deps.traceHeaderPolicy,
 		}),
-		createStepCapabilitiesExtensionInline({ telemetry: deps.telemetry }),
+		createStepCapabilitiesExtensionInline({ telemetry: deps.telemetry, stepSettings: deps.stepSettings }),
 		createStepCronExtension({ telemetry: deps.telemetry }),
 		createStepGoalExtension({ telemetry: deps.telemetry }),
 		...(deps.stepCodeProviderExtension ? [deps.stepCodeProviderExtension] : []),

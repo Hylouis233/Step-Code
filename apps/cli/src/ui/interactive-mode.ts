@@ -69,11 +69,14 @@ import {
 	hasTrustRequiringProjectResources,
 	InteractiveThemeController,
 	IS_STEP_ENTRYPOINT,
+	isLanguage,
 	KeybindingsManager,
 	keyDisplayText,
 	keyHint,
 	keyText,
 	killTrackedDetachedChildren,
+	LANGUAGES,
+	languageName,
 	listAllStepSessions,
 	listStepSessions,
 	loadAllHighlightLanguages,
@@ -104,6 +107,7 @@ import {
 	Theme,
 	type ThemeColor,
 	type ToolStatus,
+	t,
 	theme,
 	VERSION,
 } from "@step-harness/coding-agent";
@@ -894,6 +898,22 @@ export class InteractiveMode {
 					(level) => ({
 						value: level,
 						label: level,
+					}),
+				);
+			};
+		}
+
+		const languageCommand = slashCommands.find((command) => command.name === "language");
+		if (languageCommand) {
+			languageCommand.getArgumentCompletions = (prefix: string): AutocompleteItem[] | null => {
+				return createFuzzyAutocompleteItems(
+					[...LANGUAGES],
+					prefix,
+					(language) => language,
+					(language) => ({
+						value: language,
+						label: language,
+						description: languageName(language),
 					}),
 				);
 			};
@@ -2180,7 +2200,7 @@ export class InteractiveMode {
 			if (skillDiagnostics.length > 0) {
 				const warningLines = this.formatDiagnostics(skillDiagnostics, sourceInfos, { summarizeCollisions });
 				this.loadedResourcesContainer.addChild(
-					new Text(`${theme.fg("warning", "[Skill conflicts]")}\n${warningLines}`, 0, 0),
+					new Text(`${theme.fg("warning", t("diagnostics.skillConflicts"))}\n${warningLines}`, 0, 0),
 				);
 				this.loadedResourcesContainer.addChild(new Spacer(1));
 			}
@@ -2189,7 +2209,7 @@ export class InteractiveMode {
 			if (promptDiagnostics.length > 0) {
 				const warningLines = this.formatDiagnostics(promptDiagnostics, sourceInfos, { summarizeCollisions });
 				this.loadedResourcesContainer.addChild(
-					new Text(`${theme.fg("warning", "[Prompt conflicts]")}\n${warningLines}`, 0, 0),
+					new Text(`${theme.fg("warning", t("diagnostics.promptConflicts"))}\n${warningLines}`, 0, 0),
 				);
 				this.loadedResourcesContainer.addChild(new Spacer(1));
 			}
@@ -2216,7 +2236,7 @@ export class InteractiveMode {
 			if (extensionDiagnostics.length > 0) {
 				const warningLines = this.formatDiagnostics(extensionDiagnostics, sourceInfos);
 				this.loadedResourcesContainer.addChild(
-					new Text(`${theme.fg("warning", "[Extension issues]")}\n${warningLines}`, 0, 0),
+					new Text(`${theme.fg("warning", t("diagnostics.extensionIssues"))}\n${warningLines}`, 0, 0),
 				);
 				this.loadedResourcesContainer.addChild(new Spacer(1));
 			}
@@ -2225,7 +2245,7 @@ export class InteractiveMode {
 			if (themeDiagnostics.length > 0) {
 				const warningLines = this.formatDiagnostics(themeDiagnostics, sourceInfos);
 				this.loadedResourcesContainer.addChild(
-					new Text(`${theme.fg("warning", "[Theme conflicts]")}\n${warningLines}`, 0, 0),
+					new Text(`${theme.fg("warning", t("diagnostics.themeConflicts"))}\n${warningLines}`, 0, 0),
 				);
 				this.loadedResourcesContainer.addChild(new Spacer(1));
 			}
@@ -4837,6 +4857,43 @@ export class InteractiveMode {
 		}
 
 		this.selectThinkingLevel(level);
+	}
+
+	/**
+	 * `/language` with no argument reports the current language and usage; with
+	 * `en`/`zh` it persists the global choice and reports the effective language,
+	 * which may still be overridden by trusted project settings.
+	 */
+	handleLanguageCommand(searchTerm?: string): void {
+		const current = this.settingsManager.getLanguage();
+		if (!searchTerm) {
+			this.showStatus(
+				`${t("language.current", { language: languageName(current), code: current })}\n${t("language.usage")}`,
+			);
+			return;
+		}
+
+		const normalized = searchTerm.trim().toLowerCase();
+		if (!isLanguage(normalized)) {
+			this.showError(t("language.unknown", { value: searchTerm.trim(), available: LANGUAGES.join(", ") }));
+			return;
+		}
+
+		this.settingsManager.setLanguage(normalized);
+		// Chrome text (welcome block, footer, status row, tips) is read from the
+		// active language at render time, so one render repaints everything.
+		this.redraw.requestRender();
+		const effective = this.settingsManager.getLanguage();
+		this.showStatus(
+			effective === normalized
+				? t("language.switched", { language: languageName(effective), code: effective })
+				: t("language.overridden", {
+						language: languageName(normalized),
+						code: normalized,
+						effectiveLanguage: languageName(effective),
+						effectiveCode: effective,
+					}),
+		);
 	}
 
 	private selectThinkingLevel(level: ThinkingLevel): void {

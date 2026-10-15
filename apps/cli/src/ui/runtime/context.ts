@@ -166,6 +166,7 @@ export interface RuntimeContext {
 	handleFollowUp(): Promise<void>;
 	handleHotkeysCommand(): void;
 	handleImportCommand(text: string): Promise<void>;
+	handleLanguageCommand(searchTerm?: string): void;
 	handleLoginCommand(providerRef?: string): Promise<void>;
 	handleModelCommand(searchTerm?: string): Promise<void>;
 	handleNameCommand(text: string): void;

@@ -126,7 +126,7 @@ Use Ultracode to opt into multi-agent workflow orchestration for one task or for
 
 `/ultraloop` is an exact alias with the same `on`, `off`, `status`, and `help` subcommands; both names control the same mode. The editor completes these subcommands. Bare commands, `help`, and `status` leave the mode unchanged.
 
-While enabled, the status line shows `Ultracode on`. Session mode stays on across turns until `/ultracode off` or a session boundary, when it resets to off.
+While enabled, the status line shows `Ultracode on`. Session mode stays on across turns until `/ultracode off` or a session boundary, when it is re-seeded from the `ultracodeDefault` setting (`false` by default, so sessions start with the mode off). See the [settings reference](packages/coding-agent/docs/settings.md) for `ultracodeDefault`.
 
 For one turn, send `ultracode: <task>` (or `ultraloop: <task>`) in the TUI or as a launch prompt:
 

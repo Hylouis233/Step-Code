@@ -297,6 +297,12 @@ export function wireSubmitHandler(ctx: RuntimeContext): void {
 			ctx.handleThinkingCommand(searchTerm);
 			return;
 		}
+		if (text === "/language" || text.startsWith("/language ")) {
+			const searchTerm = text.startsWith("/language ") ? text.slice(10).trim() : undefined;
+			ctx.editor.setText("");
+			ctx.handleLanguageCommand(searchTerm);
+			return;
+		}
 		if (text === "/export" || text.startsWith("/export ")) {
 			await ctx.handleExportCommand(text);
 			ctx.editor.setText("");

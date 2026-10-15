@@ -25,7 +25,9 @@ export function stepPageInstallerUrl(env: NodeJS.ProcessEnv = process.env): stri
  * installer URL so a channel or mirror override covers both artifacts.
  */
 export function stepPageBundleUrl(env: NodeJS.ProcessEnv = process.env): string {
-	return `${stepPageInstallerUrl(env).replace(/\/[^/]*$/u, "")}/latest/steppage-mcp.mjs`;
+	const url = new URL(stepPageInstallerUrl(env));
+	url.pathname = `${url.pathname.replace(/\/[^/]*$/u, "")}/latest/steppage-mcp.mjs`;
+	return url.href;
 }
 
 /**

@@ -9,6 +9,11 @@ import { LiveContextManager } from "../src/core/compaction/live-context/manager.
 import { createFileOps } from "../src/core/compaction/utils.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 
+vi.mock("node:fs", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:fs")>();
+	return { ...actual, rmSync: vi.fn(actual.rmSync) };
+});
+
 const roots: string[] = [];
 afterEach(() => {
 	vi.restoreAllMocks();
@@ -171,6 +176,19 @@ describe("live context manager", () => {
 		expect(
 			session.getEntries().some((entry) => entry.type === "custom" && entry.customType === "step-live-context"),
 		).toBe(false);
+	});
+
+	it("settles disposal even when Windows keeps the mirror locked", async () => {
+		const { manager, raw } = fixture();
+		await manager.prepare(raw);
+		edit(manager, "OLD DETAIL to replace", "pending edit");
+		vi.mocked(rmSync).mockImplementationOnce(() => {
+			throw Object.assign(new Error("mirror is locked"), { code: "EPERM" });
+		});
+		expect(() => manager.dispose()).not.toThrow();
+		// A failed deletion still revokes pending edits and prevents later writes.
+		expect(await manager.accept(raw)).toBeUndefined();
+		expect(await manager.prepare(raw)).toEqual(raw);
 	});
 
 	it("restores projected context when canonical history contains a retried provider error", async () => {

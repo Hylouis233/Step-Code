@@ -23,11 +23,13 @@ capability is registered, use these commands in the interactive editor:
 `/ultraloop` is an exact alias. Both names complete `on`, `off`, `status`, and
 `help`, and share one state in the workflow extension. Bare commands, `help`,
 and `status` leave that state unchanged. Enabling session mode projects
-`Ultracode on` into the status line; disabling it or crossing a session boundary
-clears the projection. The latest on/off choice is stored in the current session
-journal, so reopening that session restores it; a new session without saved mode
-state starts off. This state is not written to global or project settings. The UI
-reads it from the extension.
+`Ultracode on` into the status line; disabling it clears the projection. The
+latest on/off choice on the active session branch is stored in its journal and
+restored when reopening or navigating the session tree. Sibling branches cannot
+grant standing consent. If the selected branch has no saved choice, a session
+boundary seeds it from `ultracodeDefault`, which defaults to `false`. A saved
+`off` choice takes precedence over a configured `true` default. Session commands
+do not change global or project settings; the UI reads state from the extension.
 
 For one turn, send `ultracode: <task>` or `ultraloop: <task>` in the TUI, or pass
 it as a launch prompt, for example:
@@ -55,6 +57,10 @@ A new per-turn opt-in still gets its own scoped reminder. The real user message
 comes first, followed by the hidden runtime reminder. Internally these are custom
 messages; the provider conversion represents them as `user` messages.
 
+Session teardown revokes pending live-context edits before removing the private
+mirror. Mirror removal is best-effort when another process keeps a file locked;
+the canonical journal remains intact and session listener/resource cleanup continues.
+
 Compaction, live-context editing, or switching branches may remove a previous
 notice. The runtime reconciles the currently visible context and supplies a
 request-local mode reminder when needed, including an off transition during
@@ -68,7 +74,8 @@ A product run may contain multiple low-level attempts because of retries or
 context compaction. The opt-in and prompt budget survive those attempts and
 clear at `agent_settled`. The next submitted prompt replaces the prompt-specific
 state. Session mode survives settlement until `/ultracode off` (or
-`/ultraloop off`) or a new session with no saved mode state.
+`/ultraloop off`). Reopening or navigating a session restores only the active
+branch's saved choice, with the configured default as the fallback.
 
 The runtime checks cancellation before entering the VM and after it returns.
 A tool call whose signal was already aborted does not start a child agent.

@@ -413,6 +413,12 @@ Key methods for working with sessions programmatically.
 - `appendCustomMessageEntry(customType, content, display, details?)` - Extension message (in context)
 - `appendLabelChange(targetId, label)` - Set/clear label
 
+If an append fails after writing bytes, the manager restores the previous JSONL
+length (or removes a failed first flush) together with its in-memory entries and
+leaf. A later reload cannot activate a rejected control entry. If the file was
+replaced, disappears, or cannot be rolled back, the failure includes both errors
+and the manager rejects further appends; repair the journal before continuing.
+
 ### Instance Methods - Tree Navigation
 - `getLeafId()` - Current position
 - `getLeafEntry()` - Get current leaf entry

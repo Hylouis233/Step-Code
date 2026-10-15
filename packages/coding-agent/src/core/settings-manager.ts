@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import lockfile from "proper-lockfile";
 import { CONFIG_DIR_NAME, getAgentDir } from "../config.ts";
+import { type Language, normalizeLanguage, setActiveLanguage } from "../i18n/index.ts";
 import { normalizePath, resolvePath } from "../utils/paths.ts";
 import { stripBom } from "../utils/text.ts";
 import { type AutoClmSettings, resolveAutoClmSettings } from "./compaction/live-context/auto-options.ts";
@@ -103,6 +104,8 @@ export interface Settings {
 	defaultProvider?: string;
 	defaultModel?: string;
 	defaultThinkingLevel?: ThinkingLevel;
+	ultracodeDefault?: boolean; // default: false - seed ultracode mode on branches without a saved on/off choice
+	language?: Language; // UI language for static chrome text: "en" (default) or "zh"
 	modelThinkingLevels?: Record<string, ThinkingLevel>; // per-model default thinking level overrides keyed by "provider/modelId"
 	transport?: TransportSetting; // default: "auto"
 	steeringMode?: "all" | "one-at-a-time";
@@ -346,6 +349,7 @@ export class SettingsManager {
 		this.errors = [...initialErrors];
 		this.settingsPaths = settingsPaths;
 		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.syncActiveLanguage();
 	}
 
 	/** Create a SettingsManager that loads from files */
@@ -523,6 +527,7 @@ export class SettingsManager {
 			this.projectSettings = {};
 			this.projectSettingsLoadError = null;
 			this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+			this.syncActiveLanguage();
 			return;
 		}
 
@@ -533,6 +538,7 @@ export class SettingsManager {
 			this.recordError("project", projectLoad.error);
 		}
 		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.syncActiveLanguage();
 	}
 
 	async reload(): Promise<void> {
@@ -561,11 +567,23 @@ export class SettingsManager {
 		}
 
 		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.syncActiveLanguage();
 	}
 
 	/** Apply additional overrides on top of current settings */
 	applyOverrides(overrides: Partial<Settings>): void {
 		this.settings = deepMergeSettings(this.settings, overrides);
+		this.syncActiveLanguage();
+	}
+
+	/**
+	 * Adopt the merged `language` setting as the active UI language. Every
+	 * entrypoint that builds a settings manager gets the persisted language for
+	 * free, so chrome text and startup warnings agree without the caller seeding
+	 * the i18n cell separately.
+	 */
+	private syncActiveLanguage(): void {
+		setActiveLanguage(normalizeLanguage(this.settings.language));
 	}
 
 	/** Mark a global field as modified during this session */
@@ -666,6 +684,7 @@ export class SettingsManager {
 
 	private save(): void {
 		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.syncActiveLanguage();
 
 		if (this.globalSettingsLoadError) {
 			return;
@@ -684,6 +703,7 @@ export class SettingsManager {
 		this.assertProjectTrustedForWrite();
 		this.projectSettings = structuredClone(settings);
 		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.syncActiveLanguage();
 
 		if (this.projectSettingsLoadError) {
 			return;
@@ -803,6 +823,28 @@ export class SettingsManager {
 		this.globalSettings.defaultThinkingLevel = level;
 		this.markModified("defaultThinkingLevel");
 		this.save();
+	}
+
+	/** UI language for static chrome text; falls back to English when unset or invalid. */
+	getLanguage(): Language {
+		return normalizeLanguage(this.settings.language);
+	}
+
+	setLanguage(language: Language): void {
+		const normalized = normalizeLanguage(language);
+		this.globalSettings.language = normalized;
+		this.markModified("language");
+		this.save();
+	}
+
+	/**
+	 * Default ultracode mode when the selected branch has no saved choice.
+	 * Only literal true seeds standing consent; a saved on/off entry is
+	 * restored by the workflow extension before consulting this fallback.
+	 */
+	getUltracodeDefault(): boolean {
+		// Only an explicit boolean true grants standing orchestration consent.
+		return this.settings.ultracodeDefault === true;
 	}
 
 	getModelThinkingLevel(provider: string, modelId: string): ThinkingLevel | undefined {
