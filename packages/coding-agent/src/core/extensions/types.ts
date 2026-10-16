@@ -1485,6 +1485,13 @@ export interface ExtensionAPI {
 
 	/** Set the active tools by name. */
 	setActiveTools(toolNames: string[]): void;
+	/**
+	 * Declare tools unavailable for this extension's current runtime. Contributions
+	 * combine across extensions; an empty list clears only this extension's list.
+	 * Availability filters discovery and model tools, not execution permission checks.
+	 * Valid during extension loading; reset when the extension is reloaded.
+	 */
+	setUnavailableTools(toolNames: readonly string[]): void;
 
 	/** Get available slash commands in the current session. */
 	getCommands(): SlashCommandInfo[];
@@ -1851,6 +1858,8 @@ export interface Extension {
 	sourceInfo: SourceInfo;
 	handlers: Map<string, HandlerFn[]>;
 	tools: Map<string, RegisteredTool>;
+	/** Session-local availability contribution owned by this extension instance. */
+	unavailableTools?: ReadonlySet<string>;
 	messageRenderers: Map<string, MessageRenderer>;
 	markdownTransformer?: MarkdownTransformer;
 	entryRenderers?: Map<string, EntryRenderer>;

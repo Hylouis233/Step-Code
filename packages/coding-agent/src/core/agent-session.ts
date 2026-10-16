@@ -392,6 +392,8 @@ export class AgentSession {
 	private _initialActiveToolNames?: string[];
 	private _allowedToolNames?: Set<string>;
 	private _excludedToolNames?: Set<string>;
+	/** Requested selection includes tools temporarily hidden by extension availability. */
+	private _requestedActiveToolNames: string[] = [];
 	private _baseToolsOverride?: Record<string, AgentTool>;
 	private _sessionStartEvent: SessionStartEvent;
 	private _extensionUIContext?: ExtensionUIContext;
@@ -1465,13 +1467,16 @@ export class AgentSession {
 	 * Get all configured tools with name, description, parameter schema, prompt guidelines, and source metadata.
 	 */
 	getAllTools(): ToolInfo[] {
-		return Array.from(this._toolDefinitions.values()).map(({ definition, sourceInfo }) => ({
-			name: definition.name,
-			description: definition.description,
-			parameters: definition.parameters,
-			promptGuidelines: definition.promptGuidelines,
-			sourceInfo,
-		}));
+		const unavailable = this._extensionRunner.getUnavailableToolNames();
+		return Array.from(this._toolDefinitions.values())
+			.filter(({ definition }) => !unavailable.has(definition.name))
+			.map(({ definition, sourceInfo }) => ({
+				name: definition.name,
+				description: definition.description,
+				parameters: definition.parameters,
+				promptGuidelines: definition.promptGuidelines,
+				sourceInfo,
+			}));
 	}
 
 	getToolDefinition(name: string): ToolDefinition | undefined {
@@ -1487,7 +1492,7 @@ export class AgentSession {
 	 * This compares the selectors against the unfiltered universe (built-in +
 	 * extension + SDK tools) so the caller can warn about names that will be ignored.
 	 * `knownTools` is that same unfiltered universe — `getAllTools()` reports the
-	 * post-filter set, which is empty precisely when every selector was misspelled.
+	 * post-filter available set, which may also be empty due to extension availability.
 	 * Call it only after extensions have finished registering, otherwise
 	 * not-yet-registered tools look unknown.
 	 */
@@ -1515,13 +1520,18 @@ export class AgentSession {
 	setActiveToolsByName(toolNames: string[]): void {
 		const tools: AgentTool[] = [];
 		const validToolNames: string[] = [];
+		const requestedToolNames: string[] = [];
+		const unavailable = this._extensionRunner.getUnavailableToolNames();
 		for (const name of toolNames) {
 			const tool = this._toolRegistry.get(name);
 			if (tool) {
+				requestedToolNames.push(name);
+				if (unavailable.has(name)) continue;
 				tools.push(tool);
 				validToolNames.push(name);
 			}
 		}
+		this._requestedActiveToolNames = requestedToolNames;
 		this.agent.state.tools = tools;
 
 		// Rebuild base system prompt with new tool set
@@ -3339,7 +3349,7 @@ export class AgentSession {
 
 	private _refreshToolRegistry(options?: { activeToolNames?: string[]; includeAllExtensionTools?: boolean }): void {
 		const previousRegistryNames = new Set(this._toolRegistry.keys());
-		const previousActiveToolNames = this.getActiveToolNames();
+		const previousActiveToolNames = this._requestedActiveToolNames;
 		const allowedToolNames = this._allowedToolNames;
 		const excludedToolNames = this._excludedToolNames;
 		const isAllowedTool = (name: string): boolean =>
@@ -3409,7 +3419,7 @@ export class AgentSession {
 			options?.activeToolNames ? [...options.activeToolNames] : [...previousActiveToolNames]
 		).filter((name) => isAllowedTool(name));
 
-		if (allowedToolNames) {
+		if (allowedToolNames && options?.includeAllExtensionTools) {
 			for (const toolName of this._toolRegistry.keys()) {
 				if (allowedToolNames.has(toolName)) {
 					nextActiveToolNames.push(toolName);
@@ -3419,7 +3429,9 @@ export class AgentSession {
 			for (const tool of wrappedExtensionTools) {
 				nextActiveToolNames.push(tool.name);
 			}
-		} else if (!options?.activeToolNames) {
+		} else {
+			// Preserve selections for known tools during refresh/reload; only genuinely
+			// new registrations opt in automatically after initial runtime creation.
 			for (const toolName of this._toolRegistry.keys()) {
 				if (!previousRegistryNames.has(toolName)) {
 					nextActiveToolNames.push(toolName);
@@ -3495,9 +3507,9 @@ export class AgentSession {
 		resetApiProviders();
 		await this._resourceLoader.reload();
 		this._buildRuntime({
-			activeToolNames: this.getActiveToolNames(),
+			activeToolNames: this._requestedActiveToolNames,
 			flagValues: previousFlagValues,
-			includeAllExtensionTools: true,
+			includeAllExtensionTools: false,
 		});
 
 		const hasBindings =

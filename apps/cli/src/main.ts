@@ -677,20 +677,13 @@ try {
 				let shouldLaunchMain = true;
 				const parsedInteractiveArgs = parseArgs(compatibility?.args ?? stepCodeArgs);
 				if (
-					parsedInteractiveArgs.completionReview &&
-					!parsedInteractiveArgs.completionCheck &&
-					!parsedInteractiveArgs.help &&
-					!parsedInteractiveArgs.version
-				) {
-					throw new Error("--completion-review requires --completion-check git-committed");
-				}
-				if (
-					parsedInteractiveArgs.completionCheck &&
+					(parsedInteractiveArgs.completionCheck || parsedInteractiveArgs.completionReview) &&
 					!parsedInteractiveArgs.help &&
 					!parsedInteractiveArgs.version &&
 					resolveAppMode(parsedInteractiveArgs, process.stdin.isTTY, process.stdout.isTTY) === "interactive"
 				) {
-					throw new Error("--completion-check requires print or JSON mode; use --print or --mode json.");
+					const flag = parsedInteractiveArgs.completionCheck ? "--completion-check" : "--completion-review";
+					throw new Error(`${flag} requires print or JSON mode; use --print or --mode json.`);
 				}
 				const interactiveStartup = isStepInteractiveLoginStartup({
 					stdinIsTTY: process.stdin.isTTY,
