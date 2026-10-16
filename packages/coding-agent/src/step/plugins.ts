@@ -38,7 +38,7 @@ export const BUILTIN_MARKETPLACE_NAME = "builtin";
 const BUILTIN_FINGERPRINT_FILE = ".stepcode-builtin-fingerprint";
 /** Records which built-in plugins have already been auto-installed, so a plugin
  * the user later uninstalls is not silently resurrected on the next launch. */
-const PREINSTALL_MARKER_FILE = ".stepcode-preinstalled";
+export const PREINSTALL_MARKER_FILE = ".stepcode-preinstalled";
 /** Built-in plugins provisioned into a fresh install without an explicit
  * `/plugin install`, so StepPage deployment tools are available out of the box. */
 export const PREINSTALLED_BUILTIN_PLUGINS: readonly string[] = ["steppage"];

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +8,7 @@ import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES } from "../../src/core/tools/truncate.ts";
 import { createStepExtension } from "../../src/features/step.ts";
+import { defaultStepPluginsDir, PREINSTALL_MARKER_FILE, PREINSTALLED_BUILTIN_PLUGINS } from "../../src/step/plugins.ts";
 import { createStepToolProfile } from "../../src/step/tool-profile.ts";
 import { createHarness, type Harness } from "./harness.ts";
 
@@ -240,6 +241,11 @@ describe("AgentSession final tool output", () => {
 		if (process.platform === "win32") return;
 		const sandbox = mkdtempSync(join(tmpdir(), "step-tool-output-bash-"));
 		vi.stubEnv("STEP_CODING_AGENT_DIR", join(sandbox, "agent"));
+		// Mark the built-in plugins as already handled so startup does not download
+		// and install StepPage over the network; that made this test exceed 30s on CI.
+		const pluginsDir = defaultStepPluginsDir();
+		mkdirSync(pluginsDir, { recursive: true });
+		writeFileSync(join(pluginsDir, PREINSTALL_MARKER_FILE), `${JSON.stringify(PREINSTALLED_BUILTIN_PLUGINS)}\n`);
 		try {
 			const harness = await createHarness({
 				tools: [],
