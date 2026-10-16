@@ -114,6 +114,7 @@ import { ModelRegistry } from "./model-registry.ts";
 import type { ModelRuntime } from "./model-runtime.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
 import { isRateLimitError, rateLimitDelay } from "./rate-limit.ts";
+import { readRequestUsage } from "./request-provenance.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
 import { exportSessionToJsonl } from "./session-export.ts";
 import type { BranchSummaryEntry, CompactionEntry, SessionEntry, SessionManager } from "./session-manager.ts";
@@ -126,7 +127,7 @@ import { type BashOperations, createLocalBashOperations } from "./tools/bash.ts"
 import { createAllToolDefinitions } from "./tools/index.ts";
 import { createToolDefinitionFromAgentTool } from "./tools/tool-definition-wrapper.ts";
 import { boundToolResultContent } from "./tools/tool-output.ts";
-import { addUsageToTotals, createUsageTotals, getAutoClmUsage } from "./usage-totals.ts";
+import { addUsageToTotals, createUsageTotals, entryUsage } from "./usage-totals.ts";
 
 export { type ParsedSkillBlock, parseSkillBlock } from "../utils/skill-block.ts";
 
@@ -1162,7 +1163,11 @@ export class AgentSession {
 				event.message.role === "toolResult"
 			) {
 				// Regular LLM message - persist as SessionMessageEntry
-				this.sessionManager.appendMessage(event.message);
+				const entryId = this.sessionManager.appendMessage(event.message);
+				if (event.message.role === "assistant" && this._extensionRunner?.hasHandlers("usage_recorded")) {
+					const provenance = readRequestUsage(event.message);
+					if (provenance) await this._extensionRunner.emit({ type: "usage_recorded", entryId, provenance });
+				}
 			}
 			// Other message types (bashExecution, compactionSummary, branchSummary) are persisted elsewhere
 
@@ -4000,6 +4005,7 @@ export class AgentSession {
 	 * actually billed across the session.
 	 */
 	getSessionStats(): SessionStats {
+		const entries = this.sessionManager.getEntries();
 		let userMessages = 0;
 		let assistantMessages = 0;
 		let toolResults = 0;
@@ -4007,12 +4013,8 @@ export class AgentSession {
 		let toolCalls = 0;
 		const usageTotals = createUsageTotals();
 
-		for (const entry of this.sessionManager.getEntries()) {
-			const maintenanceUsage = getAutoClmUsage(entry);
-			if (maintenanceUsage) addUsageToTotals(usageTotals, maintenanceUsage);
-			if ((entry.type === "branch_summary" || entry.type === "compaction") && entry.usage) {
-				addUsageToTotals(usageTotals, entry.usage);
-			}
+		for (const entry of entries) {
+			addUsageToTotals(usageTotals, entryUsage(entry).raw);
 			if (entry.type !== "message") continue;
 			totalMessages++;
 			const message = entry.message;
@@ -4020,16 +4022,12 @@ export class AgentSession {
 				userMessages++;
 			} else if (message.role === "toolResult") {
 				toolResults++;
-				if (message.usage) {
-					addUsageToTotals(usageTotals, message.usage);
-				}
 			} else if (message.role === "assistant") {
 				assistantMessages++;
 				const assistantMsg = message as AssistantMessage;
 				if (Array.isArray(assistantMsg.content)) {
 					toolCalls += assistantMsg.content.filter((c) => c.type === "toolCall").length;
 				}
-				addUsageToTotals(usageTotals, assistantMsg.usage);
 			}
 		}
 

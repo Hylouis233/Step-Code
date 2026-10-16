@@ -200,6 +200,8 @@ export function buildSubagentChildEnv(input: StepSubagentRunInput): NodeJS.Proce
 	return {
 		...process.env,
 		[CHILD_MARKER]: "1",
+		STEPCODE_USAGE_PARENT_CWD: input.parentCwd ?? input.workflowAcl?.baseCwd,
+		STEPCODE_USAGE_PARENT_SESSION_ID: input.parentSessionId,
 		STEP_DISABLE_WORKFLOW: "1",
 		STEP_DISABLE_CRON: "1",
 		STEP_DISABLE_GOAL: "1",
