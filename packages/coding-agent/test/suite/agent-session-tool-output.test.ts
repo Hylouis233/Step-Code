@@ -243,6 +243,14 @@ describe("AgentSession final tool output", () => {
 		vi.stubEnv("STEP_CODING_AGENT_DIR", join(sandbox, "agent"));
 		// Mark the built-in plugins as already handled so startup does not download
 		// and install StepPage over the network; that made this test exceed 30s on CI.
+		//
+		// STEPCODE_STORAGE_ROOT_DIR is the override that the real resolution chain
+		// actually reads (defaultStepPluginsDir -> resolveStepStorageRoot), so both
+		// this write and the product's marker lookup land in the sandbox.
+		// STEP_CODING_AGENT_DIR only moves the agent dir and is NOT consulted here:
+		// without this line the marker would be written into the developer's real
+		// ~/.stepcode/plugins, making the product skip the StepPage preinstall locally.
+		vi.stubEnv("STEPCODE_STORAGE_ROOT_DIR", join(sandbox, "agent"));
 		const pluginsDir = defaultStepPluginsDir();
 		mkdirSync(pluginsDir, { recursive: true });
 		writeFileSync(join(pluginsDir, PREINSTALL_MARKER_FILE), `${JSON.stringify(PREINSTALLED_BUILTIN_PLUGINS)}\n`);
