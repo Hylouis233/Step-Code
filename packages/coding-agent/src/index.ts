@@ -441,7 +441,7 @@ export {
 	type ProjectTrustStoreEntry,
 	type ProjectTrustUpdate,
 } from "./core/trust-manager.ts";
-export { addUsageToTotals, createUsageTotals, getUsageCostBreakdown } from "./core/usage-totals.ts";
+export { addUsageToTotals, createUsageTotals, getAutoClmUsage, getUsageCostBreakdown } from "./core/usage-totals.ts";
 export {
 	createStepExtension,
 	createStepExtensionInline,

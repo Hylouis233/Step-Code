@@ -363,7 +363,7 @@ export async function executeSubagent(
 			return failed;
 		}
 		reportCreated(agent, index);
-		// A parallel batch shares the process-wide window with workflow nodes, so the
+		// Every subagent shares the process-wide window with workflow nodes, so the
 		// two together never exceed the host ceiling. The task stays queued until admitted.
 		let releaseSlot: (() => void) | undefined;
 		if (admission) {
@@ -475,34 +475,36 @@ export async function executeSubagent(
 	// records are already seeded by makeEmptyResult, so this renders every lane
 	// at 0s, including ones still queued behind maxConcurrency.
 	emit(mode);
-	if (parallel) {
-		// The configured provider limit caps subagent batches the same way it caps workflows.
-		const ceiling = Math.min(options.maxConcurrency, clampWorkflowConcurrency(configuredWorkflowConcurrencyLimit()));
-		const lease = acquireWorkflowAdmission(ceiling);
-		try {
+	// Every mode shares the process-wide provider window with workflows, so a
+	// single or chained subagent cannot exceed the configured ceiling and its
+	// 429s lower the shared cap. Chains still run one step at a time.
+	const ceiling = Math.min(options.maxConcurrency, clampWorkflowConcurrency(configuredWorkflowConcurrencyLimit()));
+	const lease = acquireWorkflowAdmission(ceiling);
+	try {
+		if (parallel) {
 			await mapWithConcurrency(parallel, ceiling, (task, index) => runOne(task, index, lease.semaphore));
-		} finally {
-			lease.release();
-		}
-	} else if (chain) {
-		let previous = "";
-		for (let index = 0; index < chain.length; index++) {
-			const task = {
-				...chain[index],
-				// Function replacement inserts `previous` verbatim. A string replacement would
-				// let $-patterns in the prior subagent's output ($&, $`, $', $$) be reinterpreted
-				// by String.prototype.replace, corrupting the next task's prompt.
-				task: chain[index].task.replace(/\{previous\}/g, () => previous),
-			};
-			const record = await runOne(task, index);
-			previous = finalOutput(record.messages) || resultText(record);
-			if (record.status !== "completed") {
-				for (let rest = index + 1; rest < chain.length; rest++) records[rest] = makeSkippedResult(records[rest]);
-				emit(mode);
-				break;
+		} else if (chain) {
+			let previous = "";
+			for (let index = 0; index < chain.length; index++) {
+				const task = {
+					...chain[index],
+					// Function replacement inserts `previous` verbatim. A string replacement would
+					// let $-patterns in the prior subagent's output ($&, $`, $', $$) be reinterpreted
+					// by String.prototype.replace, corrupting the next task's prompt.
+					task: chain[index].task.replace(/\{previous\}/g, () => previous),
+				};
+				const record = await runOne(task, index, lease.semaphore);
+				previous = finalOutput(record.messages) || resultText(record);
+				if (record.status !== "completed") {
+					for (let rest = index + 1; rest < chain.length; rest++) records[rest] = makeSkippedResult(records[rest]);
+					emit(mode);
+					break;
+				}
 			}
-		}
-	} else await runOne(tasks[0], 0);
+		} else await runOne(tasks[0], 0, lease.semaphore);
+	} finally {
+		lease.release();
+	}
 	const finalDetails = buildDetails(mode, discovery, scope, records);
 	if (mode === "parallel") {
 		const success = records.filter((record) => record.status === "completed").length;

@@ -102,17 +102,22 @@ export async function writeWorkflowFileAtomic(filePath: string, content: string)
 
 /**
  * Append-only run journal. Resume replays a completed call whose prompt and
- * options hash matches, independent of its position: a failed, inserted, or
- * reordered call (pipeline stages finish in nondeterministic order) only re-runs
- * itself. Identical calls are consumed in their original order, so N identical
- * calls replay at most N cached results. The runtime decides which entries stay
- * eligible once the resumed run has changed the workspace.
+ * options hash matches. Calls proven not to access the environment
+ * (`worldAccess: false`) replay independent of position: a failed, inserted, or
+ * reordered call only re-runs itself. Calls that may have read or changed the
+ * environment replay only in their original relative order, so a reordered
+ * read cannot return a value cached before a mutation that has already
+ * replayed. Identical calls are consumed in their original order, so N
+ * identical calls replay at most N cached results. The runtime decides which
+ * entries stay eligible once the resumed run has changed the workspace.
  */
 export class WorkflowJournal {
 	readonly paths: WorkflowRunPaths;
 	private readonly cached = new Map<string, WorkflowJournalEntry[]>();
 	private appendQueue: Promise<void> = Promise.resolve();
 	private initialized = false;
+	/** Highest seq of a replayed entry that may have accessed the environment. */
+	private lastWorldReplaySeq = Number.NEGATIVE_INFINITY;
 
 	constructor(paths: WorkflowRunPaths, resumeFrom?: WorkflowRunPaths) {
 		this.paths = paths;
@@ -148,7 +153,9 @@ export class WorkflowJournal {
 
 	/**
 	 * Take the earliest unused completed result recorded for this exact call that
-	 * `accept` allows. A rejected entry stays available to later calls.
+	 * `accept` allows. A rejected entry stays available to later calls. An entry
+	 * that may have accessed the environment is eligible only after every
+	 * environment-accessing entry already replayed.
 	 */
 	getCached(
 		callHash: string,
@@ -156,9 +163,13 @@ export class WorkflowJournal {
 	): WorkflowJournalEntry | undefined {
 		const queue = this.cached.get(callHash);
 		if (!queue) return undefined;
-		const index = queue.findIndex(accept);
+		const index = queue.findIndex(
+			(entry) => (entry.worldAccess === false || entry.seq > this.lastWorldReplaySeq) && accept(entry),
+		);
 		if (index < 0) return undefined;
-		return queue.splice(index, 1)[0];
+		const [entry] = queue.splice(index, 1);
+		if (entry && entry.worldAccess !== false) this.lastWorldReplaySeq = entry.seq;
+		return entry;
 	}
 
 	async append(entry: WorkflowJournalEntry): Promise<void> {

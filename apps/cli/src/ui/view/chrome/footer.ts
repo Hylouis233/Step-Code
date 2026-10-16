@@ -1,6 +1,6 @@
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { AgentSession, ReadonlyFooterDataProvider } from "@step-harness/coding-agent";
-import { addUsageToTotals, createUsageTotals, t, theme } from "@step-harness/coding-agent";
+import { addUsageToTotals, createUsageTotals, getAutoClmUsage, t, theme } from "@step-harness/coding-agent";
 import { type Component, sliceByColumn, truncateToWidth, visibleWidth } from "@step-harness/pi-tui";
 
 /**
@@ -270,7 +270,8 @@ export class FooterComponent implements Component {
 
 	/**
 	 * Cumulative usage across ALL session entries (assistant messages, tool
-	 * results, compaction/branch summaries), plus the latest cache hit rate.
+	 * results, compaction/branch summaries, automatic CLM maintenance requests),
+	 * plus the latest cache hit rate.
 	 * Shared by the native and Step footer presentations.
 	 */
 	private computeUsageTotals(): { usageTotals: ReturnType<typeof createUsageTotals>; latestCacheHitRate?: number } {
@@ -289,6 +290,9 @@ export class FooterComponent implements Component {
 				addUsageToTotals(usageTotals, entry.message.usage);
 			} else if ((entry.type === "branch_summary" || entry.type === "compaction") && entry.usage) {
 				addUsageToTotals(usageTotals, entry.usage);
+			} else {
+				const maintenanceUsage = getAutoClmUsage(entry);
+				if (maintenanceUsage) addUsageToTotals(usageTotals, maintenanceUsage);
 			}
 		}
 

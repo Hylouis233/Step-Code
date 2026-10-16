@@ -293,7 +293,7 @@ test("parallel subagents honor the configured provider concurrency limit", async
 	expect(unlimited.peakActive).toBeGreaterThan(1);
 });
 
-test("admitted parallel subagents ask the runner to hold their slot until the child exits", async () => {
+test("admitted subagents ask the runner to hold their slot until the child exits", async () => {
 	const seen: Array<boolean | undefined> = [];
 	await run({ tasks: [{ agent: "explore", task: "a" }] } as SubagentParams, (input) => {
 		seen.push(input.awaitExit);
@@ -303,5 +303,53 @@ test("admitted parallel subagents ask the runner to hold their slot until the ch
 		seen.push(input.awaitExit);
 		return { text: "ok" };
 	});
-	expect(seen).toEqual([true, undefined]);
+	expect(seen).toEqual([true, true]);
+});
+
+for (const [mode, params] of [
+	["single", { agent: "explore", task: "single" }],
+	[
+		"chain",
+		{
+			chain: [
+				{ agent: "explore", task: "one" },
+				{ agent: "explore", task: "two from {previous}" },
+			],
+		},
+	],
+] as const) {
+	test(`${mode} subagents wait for slots in the window shared with workflows`, async () => {
+		const workflow = acquireWorkflowAdmission(1);
+		const held = await workflow.semaphore.acquire();
+		let started = 0;
+		const running = run(params as unknown as SubagentParams, () => {
+			started++;
+			return { text: "ok" };
+		});
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(started).toBe(0);
+		held();
+		await running;
+		expect(started).toBe(mode === "chain" ? 2 : 1);
+		workflow.release();
+	});
+
+	test(`a 429 inside a ${mode} subagent lowers the shared window`, async () => {
+		const workflow = acquireWorkflowAdmission(4);
+		await run(params as unknown as SubagentParams, (input) => {
+			input.onModelRequest?.({ type: "started" });
+			input.onModelRequest?.({ type: "rate_limit", attempt: 1, maxRetries: 3, delayMs: 0, message: "429" });
+			return { text: "ok" };
+		});
+		expect(workflow.semaphore.max).toBeLessThan(4);
+		workflow.release();
+	});
+}
+
+test("chain steps stay sequential inside the shared window", async () => {
+	const { peakActive, tasks } = await run(threeSteps, (_input, index) => ({ text: `STEP_${index + 1}` }), {
+		runnerDelayMs: 10,
+	});
+	expect(tasks).toHaveLength(3);
+	expect(peakActive).toBe(1);
 });

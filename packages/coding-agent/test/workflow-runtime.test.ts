@@ -905,6 +905,35 @@ async function resumeSourceWithTools(cwd: string): Promise<WorkflowRunPaths> {
 	return source.paths;
 }
 
+test("resume replays environment-accessing calls only in their original order", async () => {
+	const cwd = await workspace();
+	const tools: Record<string, string[]> = { read: ["read_file"], edit: ["edit_file"], think: [] };
+	const source = runtimeAt(cwd, async (input) => {
+		for (const tool of tools[input.prompt] ?? []) input.onToolExecutionStart?.(tool);
+		return observed(`${input.prompt}:original`);
+	});
+	await source.journal.initialize("order-source");
+	for (const prompt of ["think", "read", "edit"]) await source.runtime.agent(prompt);
+	await source.journal.flush();
+
+	const calls: string[] = [];
+	const resumed = runtimeAt(
+		cwd,
+		async (input) => {
+			calls.push(input.prompt);
+			return observed(`${input.prompt}:live`);
+		},
+		{ resumeFrom: source.paths },
+	);
+	await resumed.journal.initialize("order-resume");
+	// The edit replays first; the earlier read's cached pre-edit value is stale,
+	// while a call that never touched the environment still replays anywhere.
+	expect(await resumed.runtime.agent("edit")).toBe("edit:original");
+	expect(await resumed.runtime.agent("read")).toBe("read:live");
+	expect(await resumed.runtime.agent("think")).toBe("think:original");
+	expect(calls).toEqual(["read"]);
+});
+
 test("a live write during resume stops replaying results that touched the environment", async () => {
 	const cwd = await workspace();
 	const sourcePaths = await resumeSourceWithTools(cwd);
