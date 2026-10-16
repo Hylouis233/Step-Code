@@ -10,6 +10,7 @@ import {
 	STEP_PERMISSION_PRESETS,
 	StepAutoResumeController,
 	StepPermissionController,
+	type StepPermissionPresetId,
 	stepPermissionStateForPreset,
 } from "../src/step/permissions.ts";
 
@@ -622,6 +623,191 @@ describe("Step permission presets", () => {
 				skipCommandPolicy: true,
 				autoResume: true,
 			});
+		});
+	});
+	// The workflow tool's `script` is JavaScript executed in a sandboxed VM with
+	// no process, require, or network — never a shell command. Reading it as one
+	// left every ordinary multi-line script "unresolved" (and a script that
+	// merely mentioned `rm -rf` inside a template literal hazardous), which
+	// pinned the call behind a confirmation under Approve for Me.
+	describe("workflow tool calls", () => {
+		const inlineScript = [
+			"const findings = [];",
+			"for (const item of items) {",
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: the fixture is JavaScript source, not a shell command
+			"  findings.push(await agent(`review ${item}`, { schema: HOH_EVIDENCE_SCHEMA }));",
+			"}",
+			"return findings.filter(Boolean);",
+		].join("\n");
+
+		// The full matrix: three presets, plus an explicit per-tool allow/deny
+		// that must win over the preset in every one of them.
+		const matrix = [
+			{ preset: "ask", action: "confirm" },
+			{ preset: "approve-for-me", action: "allow" },
+			{ preset: "full-access", action: "allow" },
+		] as const;
+
+		it.each(matrix)("decides an inline script under $preset", ({ preset, action }) => {
+			const decision = decideStepToolCall(
+				"workflow",
+				{ script: inlineScript },
+				stepPermissionStateForPreset(preset),
+			);
+			expect(decision).toMatchObject({ action, hazardous: false });
+			// The script must never reach the shell analyzer, in any preset.
+			expect(decision.analysisIncomplete).toBeUndefined();
+		});
+
+		it.each(matrix)("honors an explicit workflow deny under $preset", ({ preset }) => {
+			const decision = decideStepToolCall(
+				"workflow",
+				{ script: inlineScript },
+				stepPermissionStateForPreset(preset),
+				{ workflow: "deny" },
+			);
+			expect(decision.action).toBe("deny");
+			expect(decision.hazardous).toBe(false);
+		});
+
+		it.each(matrix)("honors an explicit workflow allow under $preset", ({ preset }) => {
+			expect(
+				decideStepToolCall("workflow", { script: inlineScript }, stepPermissionStateForPreset(preset), {
+					workflow: "allow",
+				}).action,
+			).toBe("allow");
+		});
+
+		it("does not read a sandboxed script as a dangerous shell command", () => {
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: the fixture is JavaScript source, not a shell command
+			const script = "const target = './build';\nreturn `rm -rf ${target}`;";
+			const decision = decideStepToolCall("workflow", { script }, stepPermissionStateForPreset("approve-for-me"));
+			expect(decision.action).toBe("allow");
+			expect(decision.hazardous).toBe(false);
+			expect(decision.analysisIncomplete).toBeUndefined();
+		});
+
+		it("allows the saved-name and scriptPath workflow forms under Approve for Me", () => {
+			for (const input of [{ name: "audit" }, { scriptPath: "./audit.js" }]) {
+				expect(decideStepToolCall("workflow", input, stepPermissionStateForPreset("approve-for-me")).action).toBe(
+					"allow",
+				);
+			}
+		});
+
+		it("still analyzes real shell tools, so the workflow exemption cannot leak", () => {
+			// `action` alone cannot guard this: under Ask every mutating tool is
+			// confirmed, so a call whose command was never extracted and fell
+			// through to the generic mutating-tool branch looks identical. The
+			// observable difference is `hazardous` plus the analysis-derived
+			// reason, which only a call that reached the command analyzer reports.
+			const decide = (toolName: string, input: Record<string, unknown>) =>
+				decideStepToolCall(toolName, input, stepPermissionStateForPreset("ask"));
+			const wipe = "rm -rf /etc";
+			const analyzed: [toolName: string, input: Record<string, unknown>][] = [
+				["run_command", { command: wipe }],
+				// `bash` carries its program in `script` exactly like `workflow`;
+				// only the tool name separates the two.
+				["bash", { script: wipe }],
+				// A near-miss name must not inherit the exemption, via either field.
+				["workflow_helper", { command: wipe }],
+				["workflow_helper", { script: wipe }],
+				// Nor may the exemption widen to any other tool carrying a `script`.
+				["my_script_runner", { script: wipe }],
+				["workflow-runner", { script: wipe }],
+			];
+			for (const [toolName, input] of analyzed) {
+				const decision = decide(toolName, input);
+				expect(decision, toolName).toMatchObject({ action: "confirm", hazardous: true });
+				expect(decision.reason, toolName).toMatch(/Dangerous command requires confirmation/);
+				// The generic branch never reports hazardous, so its absence here
+				// rules the fallback out as the source of the confirmation.
+				expect(decision.reason, toolName).not.toMatch(/can modify the workspace/);
+			}
+		});
+
+		it("exempts only the workflow tool, whatever the casing or padding of its name", () => {
+			const decide = (toolName: string, input: Record<string, unknown>, preset: StepPermissionPresetId) =>
+				decideStepToolCall(toolName, input, stepPermissionStateForPreset(preset));
+			// The gate keys on the trimmed, lowercased name, so every spelling of
+			// `workflow` must be exempt.
+			for (const toolName of ["workflow", "WORKFLOW", " Workflow "]) {
+				// biome-ignore lint/suspicious/noTemplateCurlyInString: the fixture is JavaScript source, not a shell command
+				const script = "const target = './build';\nreturn `rm -rf ${target}`;";
+				// Exempt means the script never reached the analyzer: it fell through
+				// to the generic mutating-tool branch, which cannot report hazardous.
+				const exempt = decide(toolName, { script }, "ask");
+				expect(exempt, toolName).toMatchObject({ action: "confirm", hazardous: false });
+				expect(exempt.reason, toolName).toMatch(/can modify the workspace/);
+				expect(exempt.analysisIncomplete, toolName).toBeUndefined();
+				// Under Approve for Me that same exemption is the difference between
+				// a silent allow and a prompt the user never needed.
+				expect(decide(toolName, { script }, "approve-for-me"), toolName).toMatchObject({
+					action: "allow",
+					hazardous: false,
+				});
+				// The identical payload on a near-miss name still reaches the
+				// analyzer, so the exemption is an exact name match rather than a
+				// prefix match or a `script`-field match.
+				expect(decide(`${toolName}_helper`, { script }, "ask"), toolName).toMatchObject({
+					action: "confirm",
+					hazardous: true,
+				});
+			}
+		});
+
+		it("runs the workflow hook without prompting under Approve for Me", async () => {
+			const controller = new StepPermissionController({ env: {}, initialPreset: "approve-for-me" });
+			const confirm = vi.fn(async () => true);
+			const context = { hasUI: true, ui: { confirm } } as unknown as ExtensionContext;
+			const event = {
+				type: "tool_call",
+				toolName: "workflow",
+				toolCallId: "workflow-12345678",
+				input: { script: inlineScript },
+			} as const;
+
+			expect(await controller.handleToolCall(event, context)).toBeUndefined();
+			// Unattended runs get the same answer rather than blocking the turn.
+			expect(await controller.handleToolCall(event, { hasUI: false } as ExtensionContext)).toBeUndefined();
+			expect(confirm).not.toHaveBeenCalled();
+		});
+
+		it("still asks interactively under Ask and blocks when unattended", async () => {
+			const controller = new StepPermissionController({ env: {}, initialPreset: "ask" });
+			const confirm = vi.fn(async () => false);
+			const context = { hasUI: true, ui: { confirm } } as unknown as ExtensionContext;
+			const event = {
+				type: "tool_call",
+				toolName: "workflow",
+				toolCallId: "workflow-87654321",
+				input: { script: inlineScript },
+			} as const;
+
+			expect(await controller.handleToolCall(event, context)).toMatchObject({ block: true });
+			expect(confirm).toHaveBeenCalledTimes(1);
+			expect(await controller.handleToolCall(event, { hasUI: false } as ExtensionContext)).toMatchObject({
+				block: true,
+				terminate: true,
+			});
+		});
+
+		it("keeps an explicit deny blocking unattended Full Access runs", async () => {
+			const controller = new StepPermissionController({
+				env: {},
+				initialPreset: "full-access",
+				toolOverrides: { workflow: "deny" },
+			});
+			const result = await controller.handleToolCall(
+				{
+					type: "tool_call",
+					toolName: "workflow",
+					toolCallId: "workflow-denied",
+					input: { script: inlineScript },
+				},
+				{ hasUI: false } as ExtensionContext,
+			);
+			expect(result).toMatchObject({ block: true });
 		});
 	});
 });
