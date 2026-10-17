@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -192,6 +192,93 @@ describe("applyStepMcpImport", () => {
 		const servers = readGlobalStepConfig(env).mcp_servers ?? {};
 		expect(servers.docs?.command).toBe("claude-docs");
 		expect(servers["docs-codex"]?.command).toBe("codex-docs");
+	});
+});
+
+describe("servers whose command is missing (#237)", () => {
+	function makeExecutable(dir: string, name: string): string {
+		mkdirSync(dir, { recursive: true });
+		const path = join(dir, name);
+		writeFileSync(path, "#!/bin/sh\n", "utf8");
+		chmodSync(path, 0o755);
+		return path;
+	}
+
+	it("imports a server whose command does not exist as disabled, keeping its declaration", () => {
+		const bin = join(workspace, "bin");
+		const present = makeExecutable(bin, "present-mcp");
+		const missing = join(workspace, "moved-venv", "bin", "python");
+		writeClaude({
+			mcpServers: {
+				gone: { command: missing, args: ["-m", "server"] },
+				bare: { command: "present-mcp" },
+				absolute: { command: present },
+				remote: { type: "http", url: "https://example.test/mcp" },
+			},
+		});
+		const planned = planStepMcpImport({ homeDir: home, env: { ...env, PATH: bin } });
+		const gone = planned.candidates.find((candidate) => candidate.name === "gone");
+		// Still offered and still importable: the user may install it later.
+		expect(gone?.config).toBeDefined();
+		expect(gone?.unavailable).toContain(missing);
+		const screen = stripAnsi(
+			new StepMcpImportView(planned.candidates, planned.sources, {
+				onConfirm: () => {},
+				onCancel: () => {},
+				requestRender: () => {},
+			})
+				.render(160)
+				.join("\n"),
+		);
+		expect(screen).toContain("imports disabled");
+
+		const result = applyStepMcpImport(planned, ["gone", "bare", "absolute", "remote"], env);
+		expect(result.imported).toEqual(["gone", "bare", "absolute", "remote"]);
+		expect(result.disabled?.map((entry) => entry.name)).toEqual(["gone"]);
+		const servers = readGlobalStepConfig(env).mcp_servers ?? {};
+		expect(servers.gone).toEqual({ command: missing, args: ["-m", "server"], enabled: false });
+		expect(servers.bare?.enabled).toBeUndefined();
+		expect(servers.absolute?.enabled).toBeUndefined();
+		expect(servers.remote?.enabled).toBeUndefined();
+	});
+
+	it("disables a Codex server whose working directory is gone", () => {
+		const bin = join(workspace, "bin");
+		makeExecutable(bin, "uv");
+		writeCodex(
+			[
+				"[mcp_servers.tool]",
+				'command = "uv"',
+				'args = ["run", "server.py"]',
+				`cwd = "${join(workspace, "missing-dir")}"`,
+			].join("\n"),
+		);
+		const planned = planStepMcpImport({ homeDir: home, env: { ...env, PATH: bin } });
+		expect(planned.candidates[0]?.unavailable).toContain("missing-dir");
+		applyStepMcpImport(planned, ["tool"], env);
+		expect(readGlobalStepConfig(env).mcp_servers?.tool?.enabled).toBe(false);
+	});
+
+	it("still recognises the disabled entry as already imported on the next run", () => {
+		writeClaude({ mcpServers: { gone: { command: join(workspace, "nope") } } });
+		applyStepMcpImport(plan(), ["gone"], env);
+		const second = plan();
+		expect(second.candidates[0]?.blocked?.kind).toBe("duplicate");
+		expect(Object.keys(readGlobalStepConfig(env).mcp_servers ?? {})).toEqual(["gone"]);
+	});
+
+	it("tells the user which servers were imported disabled and how to turn them on", () => {
+		const notice = describeStepMcpImportOutcome({
+			kind: "imported",
+			result: {
+				imported: ["gone", "docs"],
+				skipped: [],
+				disabled: [{ name: "gone", reason: "'/x/python' was not found" }],
+				configPath: "/home/u/.stepcode/config.toml",
+			},
+		});
+		expect(notice).toContain("Imported gone disabled: '/x/python' was not found");
+		expect(notice).toContain("enabled = true");
 	});
 });
 

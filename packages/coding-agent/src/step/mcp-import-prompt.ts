@@ -146,6 +146,12 @@ export function describeStepMcpImportOutcome(outcome: StepMcpImportPromptOutcome
 		// with it MCP discovery — has not happened yet and picks these up.
 		parts.push(`Imported ${count} into ${target}`, `  ${result.imported.join(", ")}`);
 	}
+	for (const entry of result.disabled ?? []) {
+		parts.push(`Imported ${entry.name} disabled: ${entry.reason}`);
+	}
+	if ((result.disabled ?? []).length > 0) {
+		parts.push("  Set enabled = true for it in config.toml once it is installed.");
+	}
 	for (const entry of result.skipped) {
 		parts.push(`Skipped ${entry.name}: ${entry.reason}`);
 	}

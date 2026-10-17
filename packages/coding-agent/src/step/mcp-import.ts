@@ -28,9 +28,9 @@
  * token into a file on disk that the user never asked to hold one.
  */
 
-import { readFileSync } from "node:fs";
+import { accessSync, constants, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, relative } from "node:path";
+import { delimiter, isAbsolute, join, relative, resolve } from "node:path";
 import { parse as parseToml } from "smol-toml";
 import { readGlobalStepConfig, type StepMcpServerConfig, updateGlobalMcpConfig } from "./config-toml.ts";
 
@@ -80,6 +80,13 @@ export interface StepMcpImportCandidate {
 	readonly summary: string;
 	readonly config?: StepMcpServerConfig;
 	readonly blocked?: StepMcpImportBlock;
+	/**
+	 * Set when the server can be imported but cannot start on this machine
+	 * right now (its executable or working directory is gone). It is still
+	 * written, with `enabled = false`, so the declaration is kept for the user
+	 * to fix and re-enable instead of failing on every launch.
+	 */
+	readonly unavailable?: string;
 	readonly warnings: readonly string[];
 }
 
@@ -145,7 +152,7 @@ export function planStepMcpImport(options: PlanStepMcpImportOptions = {}): StepM
 		const read = source === ".claude" ? readClaudeSource(homeDir) : readCodexSource(homeDir);
 		warnings.push(...read.warnings);
 
-		const resolved = read.servers.map((server) => resolveCandidate(server, allocated));
+		const resolved = read.servers.map((server) => markUnavailable(resolveCandidate(server, allocated), env));
 		candidates.push(...resolved);
 		sources.push({
 			source,
@@ -166,6 +173,8 @@ export interface ApplyStepMcpImportResult {
 	readonly imported: readonly string[];
 	/** Requested names that were skipped, with the reason. */
 	readonly skipped: readonly { name: string; reason: string }[];
+	/** Imported names that were written with `enabled = false`, with the reason. */
+	readonly disabled?: readonly { name: string; reason: string }[];
 	readonly configPath?: string;
 }
 
@@ -184,6 +193,7 @@ export function applyStepMcpImport(
 	const wanted = new Set(selected);
 	const imported: string[] = [];
 	const skipped: { name: string; reason: string }[] = [];
+	const disabled: { name: string; reason: string }[] = [];
 	const additions: Record<string, StepMcpServerConfig> = {};
 
 	// A de-duplicated row shares its target name with the row that will write it,
@@ -200,7 +210,12 @@ export function applyStepMcpImport(
 			}
 			continue;
 		}
-		additions[candidate.targetName] = candidate.config;
+		if (candidate.unavailable && candidate.config.enabled !== false) {
+			additions[candidate.targetName] = { ...candidate.config, enabled: false };
+			disabled.push({ name: candidate.targetName, reason: candidate.unavailable });
+		} else {
+			additions[candidate.targetName] = candidate.config;
+		}
 		imported.push(candidate.targetName);
 	}
 
@@ -210,7 +225,7 @@ export function applyStepMcpImport(
 
 	try {
 		const configPath = updateGlobalMcpConfig(env, (servers) => ({ ...servers, ...additions }));
-		return { imported, skipped, configPath };
+		return { imported, skipped, ...(disabled.length > 0 ? { disabled } : {}), configPath };
 	} catch (error) {
 		return {
 			imported: [],
@@ -323,8 +338,106 @@ function sanitizeServerName(value: string): string {
 	return normalized || "server";
 }
 
+/**
+ * `enabled` is a switch on a server, not part of what the server is: an entry
+ * this importer wrote as disabled (or the user later toggled) is still the same
+ * server, and must not be imported a second time under a suffixed name.
+ */
 function isSameServerConfig(left: StepMcpServerConfig, right: StepMcpServerConfig): boolean {
-	return stableStringify(left) === stableStringify(right);
+	const { enabled: _left, ...leftRest } = left;
+	const { enabled: _right, ...rightRest } = right;
+	return stableStringify(leftRest) === stableStringify(rightRest);
+}
+
+// --- local availability ----------------------------------------------------
+
+function markUnavailable(candidate: StepMcpImportCandidate, env: NodeJS.ProcessEnv): StepMcpImportCandidate {
+	if (!candidate.config || candidate.transport !== "stdio") return candidate;
+	const unavailable = describeUnavailableStdioServer(candidate.config, env);
+	if (!unavailable) return candidate;
+	return {
+		...candidate,
+		unavailable,
+		warnings: [
+			...candidate.warnings,
+			`mcpServer '${candidate.name}' from ${candidate.sourceLabel} cannot start here (${unavailable}); it is imported disabled.`,
+		],
+	};
+}
+
+/**
+ * Why a stdio server could not be spawned on this machine, or `undefined`
+ * when its executable resolves. Only the two things the spawn itself needs are
+ * checked — the working directory and the executable — so a server that would
+ * fail later for its own reasons is still imported enabled and still reports
+ * that failure at startup.
+ */
+export function describeUnavailableStdioServer(
+	config: StepMcpServerConfig,
+	env: NodeJS.ProcessEnv = process.env,
+	platform: NodeJS.Platform = process.platform,
+): string | undefined {
+	const command = config.command;
+	if (!command) return undefined;
+	if (config.cwd && !isDirectory(config.cwd)) {
+		return `working directory '${config.cwd}' does not exist`;
+	}
+	const childEnv = { ...env, ...(config.env ?? {}) };
+	if (resolveExecutable(command, childEnv, platform, config.cwd)) return undefined;
+	return isPathLike(command) ? `'${command}' was not found` : `'${command}' is not installed or not on PATH`;
+}
+
+function isPathLike(command: string): boolean {
+	return command.includes("/") || command.includes("\\");
+}
+
+function resolveExecutable(
+	command: string,
+	env: NodeJS.ProcessEnv,
+	platform: NodeJS.Platform,
+	cwd: string | undefined,
+): string | undefined {
+	const extensions =
+		platform === "win32"
+			? ["", ...(readEnv(env, "PATHEXT") ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean)]
+			: [""];
+	if (isPathLike(command)) {
+		const base = isAbsolute(command) ? command : resolve(cwd ?? process.cwd(), command);
+		return extensions.map((extension) => base + extension).find((path) => isExecutableFile(path, platform));
+	}
+	for (const dir of (readEnv(env, "PATH") ?? "").split(platform === "win32" ? ";" : delimiter)) {
+		if (!dir) continue;
+		for (const extension of extensions) {
+			const path = join(dir, command + extension);
+			if (isExecutableFile(path, platform)) return path;
+		}
+	}
+	return undefined;
+}
+
+/** Environment lookup that tolerates Windows' case-insensitive `Path`. */
+function readEnv(env: NodeJS.ProcessEnv, name: string): string | undefined {
+	if (env[name] !== undefined) return env[name];
+	const key = Object.keys(env).find((candidate) => candidate.toUpperCase() === name);
+	return key ? env[key] : undefined;
+}
+
+function isExecutableFile(path: string, platform: NodeJS.Platform): boolean {
+	try {
+		if (!statSync(path).isFile()) return false;
+		if (platform !== "win32") accessSync(path, constants.X_OK);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+function isDirectory(path: string): boolean {
+	try {
+		return statSync(path).isDirectory();
+	} catch {
+		return false;
+	}
 }
 
 function stableStringify(value: unknown): string {
@@ -363,6 +476,13 @@ interface TranslatedServer {
 	readonly summary: string;
 	readonly config?: StepMcpServerConfig;
 	readonly blocked?: StepMcpImportBlock;
+	/**
+	 * Set when the server can be imported but cannot start on this machine
+	 * right now (its executable or working directory is gone). It is still
+	 * written, with `enabled = false`, so the declaration is kept for the user
+	 * to fix and re-enable instead of failing on every launch.
+	 */
+	readonly unavailable?: string;
 	readonly warnings: readonly string[];
 }
 

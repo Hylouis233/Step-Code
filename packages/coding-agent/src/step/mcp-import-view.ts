@@ -181,7 +181,13 @@ export class StepMcpImportView extends Container implements Component, Focusable
 		}
 		// A renamed target is the one thing the user cannot see anywhere else,
 		// and it changes the tool names the model will call.
-		if (candidate.targetName !== candidate.name) return `imports as '${candidate.targetName}' — ${candidate.summary}`;
+		const renamed = candidate.targetName !== candidate.name ? `imports as '${candidate.targetName}'` : undefined;
+		// A server that cannot start here is still imported, but switched off, so
+		// the row says why instead of what it runs.
+		if (candidate.unavailable) {
+			return `${renamed ? `${renamed}, disabled` : "imports disabled"} — ${candidate.unavailable}`;
+		}
+		if (renamed) return `${renamed} — ${candidate.summary}`;
 		return candidate.summary;
 	}
 
