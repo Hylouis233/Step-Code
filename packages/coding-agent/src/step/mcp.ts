@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { setImmediate as yieldToEventLoop } from "node:timers/promises";
@@ -250,6 +251,7 @@ export function createStepMcpExtension(): ExtensionFactory {
 								describeMcpStartFailure({
 									name: item.name,
 									command: item.declaration.command ?? item.declaration.url ?? "configured server",
+									cwd: item.declaration.command ? item.declaration.cwd : undefined,
 									provision: item.provision,
 									error,
 								}),
@@ -691,6 +693,7 @@ function resolveHttpHeaders(declaration: ServerDeclaration): Record<string, stri
 export function describeMcpStartFailure(input: {
 	name: string;
 	command: string;
+	cwd?: string;
 	provision?: StepPluginProvision;
 	error: unknown;
 	env?: NodeJS.ProcessEnv;
@@ -708,6 +711,9 @@ export function describeMcpStartFailure(input: {
 		return `MCP server '${input.name}' could not start: ${detail}\nAuthenticate with: step mcp login ${quoted}, then restart Step.`;
 	}
 	if (!isMissingExecutable(input.error)) return `MCP server '${input.name}' could not start: ${detail}`;
+	// spawn reports a missing cwd as the same ENOENT as a missing executable.
+	if (input.cwd && !existsSync(path.resolve(input.cwd)))
+		return `MCP server '${input.name}' could not start: working directory '${input.cwd}' does not exist. Fix the server's cwd, then restart Step.`;
 	const install = input.provision ? provisionInstallCommand(input.provision, input.env ?? process.env) : undefined;
 	const remedy = install ? `Install it with: ${install}, then restart Step.` : "Install it, then restart Step.";
 	return `MCP server '${input.name}' could not start: '${input.command}' is not installed or not on PATH. ${remedy}`;

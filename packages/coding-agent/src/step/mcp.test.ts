@@ -183,3 +183,36 @@ test("failures that are not a missing executable keep the underlying error", () 
 
 	expect(message).toBe("MCP server 'steppage__steppage' could not start: Request timed out");
 });
+
+test("a missing working directory is reported instead of blaming the command", async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), "step-mcp-cwd-"));
+	roots.push(root);
+	const missing = path.join(root, "gone");
+	const message = describeMcpStartFailure({
+		name: "local-docs",
+		command: "node",
+		cwd: missing,
+		error: Object.assign(new Error("spawn node ENOENT"), { code: "ENOENT" }),
+		env: {},
+	});
+
+	expect(message).toBe(
+		`MCP server 'local-docs' could not start: working directory '${missing}' does not exist. Fix the server's cwd, then restart Step.`,
+	);
+	expect(message).not.toContain("not installed");
+});
+
+test("an existing working directory keeps the missing-command guidance", async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), "step-mcp-cwd-"));
+	roots.push(root);
+	const message = describeMcpStartFailure({
+		name: "local-docs",
+		command: "missing-docs-mcp",
+		cwd: root,
+		error: Object.assign(new Error("spawn missing-docs-mcp ENOENT"), { code: "ENOENT" }),
+		env: {},
+	});
+
+	expect(message).toContain("'missing-docs-mcp' is not installed or not on PATH");
+	expect(message).not.toContain("working directory");
+});
