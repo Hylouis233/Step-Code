@@ -10,6 +10,7 @@ import {
 	STEP_PERMISSION_PRESETS,
 	StepAutoResumeController,
 	StepPermissionController,
+	type StepPermissionPresetId,
 	stepPermissionStateForPreset,
 } from "../src/step/permissions.ts";
 
@@ -695,11 +696,64 @@ describe("Step permission presets", () => {
 		});
 
 		it("still analyzes real shell tools, so the workflow exemption cannot leak", () => {
-			const state = stepPermissionStateForPreset("approve-for-me");
-			expect(decideStepToolCall("run_command", { command: "rm -rf /etc" }, state).action).toBe("confirm");
-			expect(decideStepToolCall("bash", { script: "echo hello" }, state)).toMatchObject({ action: "allow" });
-			// A tool that merely shares the name still gets its `command` analyzed.
-			expect(decideStepToolCall("workflow_helper", { command: "rm -rf /" }, state).action).toBe("confirm");
+			// `action` alone cannot guard this: under Ask every mutating tool is
+			// confirmed, so a call whose command was never extracted and fell
+			// through to the generic mutating-tool branch looks identical. The
+			// observable difference is `hazardous` plus the analysis-derived
+			// reason, which only a call that reached the command analyzer reports.
+			const decide = (toolName: string, input: Record<string, unknown>) =>
+				decideStepToolCall(toolName, input, stepPermissionStateForPreset("ask"));
+			const wipe = "rm -rf /etc";
+			const analyzed: [toolName: string, input: Record<string, unknown>][] = [
+				["run_command", { command: wipe }],
+				// `bash` carries its program in `script` exactly like `workflow`;
+				// only the tool name separates the two.
+				["bash", { script: wipe }],
+				// A near-miss name must not inherit the exemption, via either field.
+				["workflow_helper", { command: wipe }],
+				["workflow_helper", { script: wipe }],
+				// Nor may the exemption widen to any other tool carrying a `script`.
+				["my_script_runner", { script: wipe }],
+				["workflow-runner", { script: wipe }],
+			];
+			for (const [toolName, input] of analyzed) {
+				const decision = decide(toolName, input);
+				expect(decision, toolName).toMatchObject({ action: "confirm", hazardous: true });
+				expect(decision.reason, toolName).toMatch(/Dangerous command requires confirmation/);
+				// The generic branch never reports hazardous, so its absence here
+				// rules the fallback out as the source of the confirmation.
+				expect(decision.reason, toolName).not.toMatch(/can modify the workspace/);
+			}
+		});
+
+		it("exempts only the workflow tool, whatever the casing or padding of its name", () => {
+			const decide = (toolName: string, input: Record<string, unknown>, preset: StepPermissionPresetId) =>
+				decideStepToolCall(toolName, input, stepPermissionStateForPreset(preset));
+			// The gate keys on the trimmed, lowercased name, so every spelling of
+			// `workflow` must be exempt.
+			for (const toolName of ["workflow", "WORKFLOW", " Workflow "]) {
+				// biome-ignore lint/suspicious/noTemplateCurlyInString: the fixture is JavaScript source, not a shell command
+				const script = "const target = './build';\nreturn `rm -rf ${target}`;";
+				// Exempt means the script never reached the analyzer: it fell through
+				// to the generic mutating-tool branch, which cannot report hazardous.
+				const exempt = decide(toolName, { script }, "ask");
+				expect(exempt, toolName).toMatchObject({ action: "confirm", hazardous: false });
+				expect(exempt.reason, toolName).toMatch(/can modify the workspace/);
+				expect(exempt.analysisIncomplete, toolName).toBeUndefined();
+				// Under Approve for Me that same exemption is the difference between
+				// a silent allow and a prompt the user never needed.
+				expect(decide(toolName, { script }, "approve-for-me"), toolName).toMatchObject({
+					action: "allow",
+					hazardous: false,
+				});
+				// The identical payload on a near-miss name still reaches the
+				// analyzer, so the exemption is an exact name match rather than a
+				// prefix match or a `script`-field match.
+				expect(decide(`${toolName}_helper`, { script }, "ask"), toolName).toMatchObject({
+					action: "confirm",
+					hazardous: true,
+				});
+			}
 		});
 
 		it("runs the workflow hook without prompting under Approve for Me", async () => {
