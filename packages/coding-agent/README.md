@@ -1,15 +1,18 @@
 <p align="center">
-  <a href="https://discord.com/invite/3cU7Bz4UPx"><img alt="Discord" src="https://img.shields.io/badge/discord-community-5865F2?style=flat-square&logo=discord&logoColor=white" /></a>
   <a href="https://www.npmjs.com/package/@step-harness/coding-agent"><img alt="npm" src="https://img.shields.io/npm/v/@step-harness/coding-agent?style=flat-square" /></a>
 </p>
 
 ---
 
-Pi is a minimal terminal coding harness. Adapt pi to your workflows, not the other way around, without having to fork and modify pi internals. Extend it with TypeScript [Extensions](#extensions), [Skills](#skills), [Prompt Templates](#prompt-templates), and [Themes](#themes). Put your extensions, skills, prompt templates, and themes in [Pi Packages](#pi-packages) and share them with others via npm or git.
+`@step-harness/coding-agent` is the StepCode runtime: a minimal terminal coding harness. Adapt it to your workflows, not the other way around, without forking and modifying the internals. Extend it with TypeScript [Extensions](#extensions), [Skills](#skills), [Prompt Templates](#prompt-templates), and [Themes](#themes). Put your extensions, skills, prompt templates, and themes in a [StepCode package](#packages) and share it with others via npm or git.
 
-Pi ships with powerful defaults but skips features like sub agents and plan mode. Instead, you can ask pi to build what you want or install a third party pi package that matches your workflow.
+StepCode ships with powerful defaults but skips opinionated features like sub agents and plan mode. Instead, ask it to build what you want, or install a third-party package that matches your workflow.
 
-Pi runs in four modes: interactive, print or JSON, RPC for process integration, and an SDK for embedding in your own apps.
+StepCode runs in four modes: interactive, print or JSON, RPC for process integration, and an SDK for embedding in your own apps.
+
+### Upstream lineage and naming
+
+This runtime is derived from the upstream pi coding agent. `pi` therefore still appears where it is a compatibility contract rather than product branding: the `pi` manifest key that the package loader reads from `package.json`, the `pi-package` discovery keyword on published packages, and the `~/.pi/agent/` / `.pi/` paths below, which apply when you invoke plain `pi`. The shipped product entrypoint is `step`, and under it the config and package root is `~/.stepcode/`.
 
 ## Table of Contents
 
@@ -30,7 +33,7 @@ Pi runs in four modes: interactive, print or JSON, RPC for process integration, 
   - [Skills](#skills)
   - [Extensions](#extensions)
   - [Themes](#themes)
-  - [Pi Packages](#pi-packages)
+  - [Packages](#packages)
 - [Programmatic Usage](#programmatic-usage)
 - [Philosophy](#philosophy)
 - [CLI Reference](#cli-reference)
@@ -43,23 +46,23 @@ Pi runs in four modes: interactive, print or JSON, RPC for process integration, 
 npm install -g --ignore-scripts @step-harness/coding-agent
 ```
 
-`--ignore-scripts` disables dependency lifecycle scripts during install. Pi does not require install scripts for normal npm installs.
+`--ignore-scripts` disables dependency lifecycle scripts during install. StepCode does not require install scripts for normal npm installs.
 
 Authenticate with an API key:
 
 ```bash
 export STEP_API_KEY=...
-pi
+step
 ```
 
 Or use your existing subscription:
 
 ```bash
-pi
+step
 /login  # Then select provider
 ```
 
-Then just talk to pi. By default, pi gives the model four tools: `read`, `write`, `edit`, and `bash`. The model uses these to fulfill your requests. Add capabilities via [skills](#skills), [prompt templates](#prompt-templates), [extensions](#extensions), or [pi packages](#pi-packages).
+Then just talk to StepCode. By default, it gives the model four tools: `read`, `write`, `edit`, and `bash`. The model uses these to fulfill your requests. Add capabilities via [skills](#skills), [prompt templates](#prompt-templates), [extensions](#extensions), or [packages](#packages).
 
 **Platform notes:** [Windows](docs/windows.md) | [Termux (Android)](docs/termux.md) | [tmux](docs/tmux.md) | [Terminal setup](docs/terminal-setup.md) | [Shell aliases](docs/shell-aliases.md)
 
@@ -273,7 +276,7 @@ Review this code for bugs, security issues, and performance problems.
 Focus on: {{focus}}
 ```
 
-Place in `~/.pi/agent/prompts/`, `.pi/prompts/`, or a [pi package](#pi-packages) to share with others. See [docs/prompt-templates.md](docs/prompt-templates.md).
+Place in `~/.pi/agent/prompts/`, `.pi/prompts/`, or a [package](#packages) to share with others. See [docs/prompt-templates.md](docs/prompt-templates.md).
 
 ### Skills
 
@@ -289,7 +292,7 @@ Use this skill when the user asks about X.
 2. Then that
 ```
 
-Place in `~/.pi/agent/skills/`, `~/.pi/skills/`, `~/.agents/skills/`, `~/.claude/skills/`, `.pi/skills/`, `.agents/skills/`, or `.claude/skills/` (the last two from `cwd` up through parent directories) or a [pi package](#pi-packages) to share with others. See [docs/skills.md](docs/skills.md).
+Place in `~/.pi/agent/skills/`, `~/.pi/skills/`, `~/.agents/skills/`, `~/.claude/skills/`, `.pi/skills/`, `.agents/skills/`, or `.claude/skills/` (the last two from `cwd` up through parent directories) or a [package](#packages) to share with others. See [docs/skills.md](docs/skills.md).
 
 ### Extensions
 
@@ -321,13 +324,13 @@ The default export can also be `async`. pi waits for async extension factories b
 - Games while waiting (yes, Doom runs)
 - ...anything you can dream up
 
-Place in `~/.pi/agent/extensions/`, `.pi/extensions/`, or a [pi package](#pi-packages) to share with others. See [docs/extensions.md](docs/extensions.md) and [examples/extensions/](examples/extensions/).
+Place in `~/.pi/agent/extensions/`, `.pi/extensions/`, or a [package](#packages) to share with others. See [docs/extensions.md](docs/extensions.md) and [examples/extensions/](examples/extensions/).
 
 ### Themes
 
 Built-in: `dark`, `light`, `sage`, `step-blue`, `step-violet`, `step-violet-light`. Themes hot-reload: modify the active theme file and pi immediately applies changes.
 
-Place in `~/.pi/agent/themes/`, `.pi/themes/`, or a [pi package](#pi-packages) to share with others. See [docs/themes.md](docs/themes.md).
+Place in `~/.pi/agent/themes/`, `.pi/themes/`, or a [package](#packages) to share with others. See [docs/themes.md](docs/themes.md).
 
 ### Step entrypoint
 
@@ -345,39 +348,39 @@ Step-specific behavior is registered as an extension (`/init`, provider login,
 and branding). The editor, input protocol, selectors, overlays, queueing, and
 agent lifecycle remain pi-owned.
 
-### Pi Packages
+### Packages
 
-Bundle and share extensions, skills, prompts, and themes via npm or git. Find packages on [npmjs.com](https://www.npmjs.com/search?q=keywords%3Api-package) or [Discord](https://discord.com/channels/1456806362351669492/1457744485428629628).
+Bundle and share extensions, skills, prompts, and themes via npm or git. Find packages on [npmjs.com](https://www.npmjs.com/search?q=keywords%3Api-package).
 
-> **Security:** Pi packages run with full system access. Extensions execute arbitrary code, and skills can instruct the model to perform any action including running executables. Review source code before installing third-party packages.
+> **Security:** StepCode packages run with full system access. Extensions execute arbitrary code, and skills can instruct the model to perform any action including running executables. Review source code before installing third-party packages.
 
 ```bash
-pi install npm:@foo/pi-tools
-pi install npm:@foo/pi-tools@1.2.3      # pinned version
-pi install git:github.com/user/repo
-pi install git:github.com/user/repo@v1  # tag or commit
-pi install git:git@github.com:user/repo
-pi install git:git@github.com:user/repo@v1  # tag or commit
-pi install https://github.com/user/repo
-pi install https://github.com/user/repo@v1      # tag or commit
-pi install ssh://git@github.com/user/repo
-pi install ssh://git@github.com/user/repo@v1    # tag or commit
-pi remove npm:@foo/pi-tools
-pi uninstall npm:@foo/pi-tools          # alias for remove
-pi list
-pi update                               # update pi only
-pi update --all                         # update pi and packages
-pi update --extensions                  # update packages only
-pi update --models                      # refresh model catalogs only
-pi update --self                        # update pi only
-pi update --self --force                # reinstall pi even if current
-pi update npm:@foo/pi-tools             # update one package
-pi config                               # enable/disable extensions, skills, prompts, themes
+step install npm:@foo/pi-tools
+step install npm:@foo/pi-tools@1.2.3      # pinned version
+step install git:github.com/user/repo
+step install git:github.com/user/repo@v1  # tag or commit
+step install git:git@github.com:user/repo
+step install git:git@github.com:user/repo@v1  # tag or commit
+step install https://github.com/user/repo
+step install https://github.com/user/repo@v1      # tag or commit
+step install ssh://git@github.com/user/repo
+step install ssh://git@github.com/user/repo@v1    # tag or commit
+step remove npm:@foo/pi-tools
+step uninstall npm:@foo/pi-tools        # alias for remove
+step list
+step update                             # update StepCode only
+step update --all                       # update StepCode and packages
+step update --extensions                # update packages only
+step update --models                    # refresh model catalogs only
+step update --self                      # update StepCode only
+step update --self --force              # reinstall StepCode even if current
+step update npm:@foo/pi-tools           # update one package
+step config                             # enable/disable extensions, skills, prompts, themes
 ```
 
-Packages install to `~/.pi/agent/git/` (git) or `~/.pi/agent/npm/` (npm). Use `-l` for project-local installs (`.pi/git/`, `.pi/npm/`). Git `@ref` values are pinned tags or commits; pinned packages are skipped by `pi update --extensions` and `pi update --all`, so use `pi install git:host/user/repo@new-ref` to move an existing package to a new ref. Git packages install dependencies with `npm install --omit=dev` by default, so runtime deps must be listed under `dependencies`; when `npmCommand` is configured, git packages use plain `install` for compatibility with wrappers. If you use a Node version manager and want package installs to reuse a stable npm context, set `npmCommand` in `settings.json`, for example `["mise", "exec", "node@20", "--", "npm"]`.
+Packages install to `~/.stepcode/agent/git/` (git) or `~/.stepcode/agent/npm/` (npm); plain `pi` invocations use `~/.pi/agent/`. Use `-l` for project-local installs (`.stepcode/git/`, `.stepcode/npm/`). Git `@ref` values are pinned tags or commits; pinned packages are skipped by `step update --extensions` and `step update --all`, so use `step install git:host/user/repo@new-ref` to move an existing package to a new ref. Git packages install dependencies with `npm install --omit=dev` by default, so runtime deps must be listed under `dependencies`; when `npmCommand` is configured, git packages use plain `install` for compatibility with wrappers. If you use a Node version manager and want package installs to reuse a stable npm context, set `npmCommand` in `settings.json`, for example `["mise", "exec", "node@20", "--", "npm"]`.
 
-Create a package by adding a `pi` key to `package.json`:
+Create a package by adding a `pi` manifest key to `package.json`. The key keeps its upstream name so already-published packages stay discoverable:
 
 ```json
 {
@@ -392,7 +395,7 @@ Create a package by adding a `pi` key to `package.json`:
 }
 ```
 
-Without a `pi` manifest, pi auto-discovers from conventional directories (`extensions/`, `skills/`, `prompts/`, `themes/`).
+Without a `pi` manifest, StepCode auto-discovers from conventional directories (`extensions/`, `skills/`, `prompts/`, `themes/`).
 
 See [docs/packages.md](docs/packages.md).
 
@@ -434,11 +437,11 @@ See [docs/rpc.md](docs/rpc.md) for the protocol.
 
 ## Philosophy
 
-Pi is aggressively extensible so it doesn't have to dictate your workflow. Features that other tools bake in can be built with [extensions](#extensions), [skills](#skills), or installed from third-party [pi packages](#pi-packages). This keeps the core minimal while letting you shape pi to fit how you work.
+StepCode is aggressively extensible so it doesn't have to dictate your workflow. Features that other tools bake in can be built with [extensions](#extensions), [skills](#skills), or installed from third-party [packages](#packages). This keeps the core minimal while letting you shape StepCode to fit how you work.
 
-**No MCP.** Build CLI tools with READMEs (see [Skills](#skills)), or build an extension that adds MCP support. [Why?](https://mariozechner.at/posts/2025-11-02-what-if-you-dont-need-mcp/)
+**No MCP.** Build CLI tools with READMEs (see [Skills](#skills)), or build an extension that adds MCP support.
 
-**No sub-agents.** There's many ways to do this. Spawn pi instances via tmux, or build your own with [extensions](#extensions), or install a package that does it your way.
+**No sub-agents.** There's many ways to do this. Spawn StepCode instances via tmux, or build your own with [extensions](#extensions), or install a package that does it your way.
 
 **No permission popups.** Run in a container, or build your own confirmation flow with [extensions](#extensions) inline with your environment and security requirements.
 
@@ -448,34 +451,34 @@ Pi is aggressively extensible so it doesn't have to dictate your workflow. Featu
 
 **No background bash.** Use tmux. Full observability, direct interaction.
 
-Read the [blog post](https://mariozechner.at/posts/2025-11-30-pi-coding-agent/) for the full rationale.
+This design follows the rationale of the upstream pi coding agent.
 
 ---
 
 ## CLI Reference
 
 ```bash
-pi [options] [--] [@files...] [messages...]
+step [options] [--] [@files...] [messages...]
 ```
 
 ### Package Commands
 
 ```bash
-pi install <source> [-l]     # Install package, -l for project-local
-pi remove <source> [-l]      # Remove package
-pi uninstall <source> [-l]   # Alias for remove
-pi update [source|self|pi]   # Update pi only, or one package source
-pi update --all              # Update pi and packages
-pi update --extensions       # Update packages only
-pi update --models           # Refresh model catalogs only
-pi update --self             # Update pi only
-pi update --self --force     # Reinstall pi even if current
-pi update --extension <src>  # Update one package
-pi list                      # List installed packages
-pi config                    # Enable/disable package resources
+step install <source> [-l]     # Install package, -l for project-local
+step remove <source> [-l]      # Remove package
+step uninstall <source> [-l]   # Alias for remove
+step update [source|self|step] # Update StepCode only, or one package source
+step update --all              # Update StepCode and packages
+step update --extensions       # Update packages only
+step update --models           # Refresh model catalogs only
+step update --self             # Update StepCode only
+step update --self --force     # Reinstall StepCode even if current
+step update --extension <src>  # Update one package
+step list                      # List installed packages
+step config                    # Enable/disable package resources
 ```
 
-`pi config` and project package commands accept `--approve`/`--no-approve` to trust or ignore project-local settings for one command. `pi update` never prompts for project trust.
+`step config` and project package commands accept `--approve`/`--no-approve` to trust or ignore project-local settings for one command. `step update` never prompts for project trust.
 
 ### Modes
 

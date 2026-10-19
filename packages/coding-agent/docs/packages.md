@@ -115,7 +115,7 @@ Local paths point to files or directories on disk and are added to settings with
 
 ## Creating a Step Package
 
-Add a `step` manifest to `package.json` or use conventional directories. Include the `pi-package` keyword for discoverability.
+Add a `pi` manifest to `package.json` or use conventional directories. Include the `pi-package` keyword for discoverability. Both names are kept for compatibility with already-published packages.
 
 ```json
 {
