@@ -15,7 +15,7 @@ A closed connection removes its tools and changes its status to failed. Session 
 Extensions can replace part of their own catalog with the existing batch API:
 
 ```ts
-step.registerTools(nextDefinitions, { remove: previousNames });
+pi.registerTools(nextDefinitions, { remove: previousNames });
 ```
 
 Removal affects only the calling extension's registrations. Names supplied in both lists receive the new definition. The registry refreshes once after the batch, so callers see the finished replacement. Removing a winning extension definition can reveal another extension or builtin definition under the existing precedence rules. Empty batches and removal of names the caller does not own do not refresh the registry. Stale extension APIs reject the operation.

@@ -297,7 +297,7 @@ Extensions can intercept and customize both compaction and branch summarization.
 Fired before auto-compaction or `/compact`. Can cancel or provide custom summary. See `SessionBeforeCompactEvent` and `CompactionPreparation` in the types file.
 
 ```typescript
-step.on("session_before_compact", async (event, ctx) => {
+pi.on("session_before_compact", async (event, ctx) => {
   const { preparation, branchEntries, customInstructions, reason, willRetry, signal } = event;
 
   // preparation.messagesToSummarize - messages to summarize
@@ -336,7 +336,7 @@ To generate a summary with your own model, convert messages to text using `seria
 ```typescript
 import { convertToLlm, serializeConversation } from "@step-harness/coding-agent";
 
-step.on("session_before_compact", async (event, ctx) => {
+pi.on("session_before_compact", async (event, ctx) => {
   const { preparation } = event;
   
   // Convert AgentMessage[] to Message[], then serialize to text
@@ -371,7 +371,7 @@ See [custom-compaction.ts](../examples/extensions/custom-compaction.ts) for a co
 Fired when manual or automatic compaction fails or is aborted. This is useful for telemetry extensions that need to pair `session_before_compact` attempts with terminal outcomes.
 
 ```typescript
-step.on("session_compact_failed", async (event, ctx) => {
+pi.on("session_compact_failed", async (event, ctx) => {
   const { reason, errorMessage, aborted, willRetry, fromExtension } = event;
   // reason - "manual" (/compact), "threshold", or "overflow"
   // errorMessage - present for non-abort failures
@@ -386,7 +386,7 @@ step.on("session_compact_failed", async (event, ctx) => {
 Fired before `/tree` navigation. Always fires regardless of whether user chose to summarize. Can cancel navigation or provide custom summary.
 
 ```typescript
-step.on("session_before_tree", async (event, ctx) => {
+pi.on("session_before_tree", async (event, ctx) => {
   const { preparation, signal } = event;
 
   // preparation.targetId - where we're navigating to

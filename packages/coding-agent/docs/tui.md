@@ -89,7 +89,7 @@ Without this propagation, typing with an IME (Chinese, Japanese, Korean, etc.) w
 **In extensions** via `ctx.ui.custom()`:
 
 ```typescript
-step.on("session_start", async (_event, ctx) => {
+pi.on("session_start", async (_event, ctx) => {
   const result = await ctx.ui.custom<string | null>((tui, theme, keybindings, done) =>
     new MyComponent({
       theme,
@@ -385,7 +385,7 @@ class MySelector {
 Usage in an extension:
 
 ```typescript
-step.registerCommand("pick", {
+pi.registerCommand("pick", {
   description: "Pick an item",
   handler: async (_args, ctx) => {
     const items = ["Option A", "Option B", "Option C"];
@@ -614,7 +614,7 @@ import type { ExtensionAPI } from "@step-harness/coding-agent";
 import { DynamicBorder } from "@step-harness/coding-agent";
 import { Container, type SelectItem, SelectList, Text } from "@step-harness/pi-tui";
 
-step.registerCommand("pick", {
+pi.registerCommand("pick", {
   handler: async (_args, ctx) => {
     const items: SelectItem[] = [
       { value: "opt1", label: "Option 1", description: "First option" },
@@ -672,7 +672,7 @@ For operations that take time and should be cancellable. `BorderedLoader` shows 
 ```typescript
 import { BorderedLoader } from "@step-harness/coding-agent";
 
-step.registerCommand("fetch", {
+pi.registerCommand("fetch", {
   handler: async (_args, ctx) => {
     const result = await ctx.ui.custom<string | null>((tui, theme, _kb, done) => {
       const loader = new BorderedLoader(tui, theme, "Fetching data...");
@@ -705,7 +705,7 @@ For toggling multiple settings. Use `SettingsList` from `@step-harness/pi-tui` w
 import { getSettingsListTheme } from "@step-harness/coding-agent";
 import { Container, type SettingItem, SettingsList, Text } from "@step-harness/pi-tui";
 
-step.registerCommand("settings", {
+pi.registerCommand("settings", {
   handler: async (_args, ctx) => {
     const items: SettingItem[] = [
       { id: "verbose", label: "Verbose mode", currentValue: "off", values: ["on", "off"] },
@@ -894,8 +894,8 @@ class VimEditor extends CustomEditor {
   }
 }
 
-export default function (step: ExtensionAPI) {
-  step.on("session_start", (_event, ctx) => {
+export default function (pi: ExtensionAPI) {
+  pi.on("session_start", (_event, ctx) => {
     // Factory receives the TUI, theme, and keybindings from the app
     ctx.ui.setEditorComponent((tui, theme, keybindings) =>
       new VimEditor(tui, theme, keybindings)

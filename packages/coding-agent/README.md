@@ -307,14 +307,14 @@ Place in `~/.stepcode/agent/skills/`, `~/.stepcode/skills/`, `~/.agents/skills/`
 TypeScript modules that extend step with custom tools, commands, keyboard shortcuts, event handlers, and UI components.
 
 ```typescript
-export default function (step: ExtensionAPI) {
-  step.registerTool({ name: "deploy", ... });
-  step.registerCommand("stats", { ... });
-  step.on("tool_call", async (event, ctx) => { ... });
+export default function (pi: ExtensionAPI) {
+  pi.registerTool({ name: "deploy", ... });
+  pi.registerCommand("stats", { ... });
+  pi.on("tool_call", async (event, ctx) => { ... });
 }
 ```
 
-The default export can also be `async`. step waits for async extension factories before startup continues, which is useful for one-time initialization such as fetching remote model lists before calling `step.registerProvider()`.
+The default export can also be `async`. step waits for async extension factories before startup continues, which is useful for one-time initialization such as fetching remote model lists before calling `pi.registerProvider()`.
 
 **What's possible:**
 - Custom tools (or replace built-in tools entirely)

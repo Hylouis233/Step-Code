@@ -7,12 +7,12 @@ Extensions are TypeScript modules that extend step's behavior. They can subscrib
 > **Placement for /reload:** Put extensions in `~/.stepcode/agent/extensions/` (global) or `.stepcode/extensions/` (project-local) for auto-discovery. Use `step -e ./path.ts` only for quick tests. Extensions in auto-discovered locations can be hot-reloaded with `/reload`.
 
 **Key capabilities:**
-- **Custom tools** - Register tools the LLM can call via `step.registerTool()`
+- **Custom tools** - Register tools the LLM can call via `pi.registerTool()`
 - **Event interception** - Block or modify tool calls, inject context, customize compaction
 - **User interaction** - Prompt users via `ctx.ui` (select, confirm, input, notify)
 - **Custom UI components** - Full TUI components with keyboard input via `ctx.ui.custom()` for complex interactions
-- **Custom commands** - Register commands like `/mycommand` via `step.registerCommand()`
-- **Session persistence** - Store state that survives restarts via `step.appendEntry()`
+- **Custom commands** - Register commands like `/mycommand` via `pi.registerCommand()`
+- **Session persistence** - Store state that survives restarts via `pi.appendEntry()`
 - **Custom rendering** - Control how tool calls/results and messages appear in TUI
 
 **Example use cases:**
@@ -61,13 +61,13 @@ Create `~/.stepcode/agent/extensions/my-extension.ts`:
 import type { ExtensionAPI } from "@step-harness/coding-agent";
 import { Type } from "typebox";
 
-export default function (step: ExtensionAPI) {
+export default function (pi: ExtensionAPI) {
   // React to events
-  step.on("session_start", async (_event, ctx) => {
+  pi.on("session_start", async (_event, ctx) => {
     ctx.ui.notify("Extension loaded!", "info");
   });
 
-  step.on("tool_call", async (event, ctx) => {
+  pi.on("tool_call", async (event, ctx) => {
     if (event.toolName === "bash" && event.input.command?.includes("rm -rf")) {
       const ok = await ctx.ui.confirm("Dangerous!", "Allow rm -rf?");
       if (!ok) return { block: true, reason: "Blocked by user" };
@@ -75,7 +75,7 @@ export default function (step: ExtensionAPI) {
   });
 
   // Register a custom tool
-  step.registerTool({
+  pi.registerTool({
     name: "greet",
     label: "Greet",
     description: "Greet someone by name",
@@ -91,7 +91,7 @@ export default function (step: ExtensionAPI) {
   });
 
   // Register a command
-  step.registerCommand("hello", {
+  pi.registerCommand("hello", {
     description: "Say hello",
     handler: async (args, ctx) => {
       ctx.ui.notify(`Hello ${args || "world"}!`, "info");
@@ -158,9 +158,9 @@ An extension exports a default factory function that receives `ExtensionAPI`. Th
 ```typescript
 import type { ExtensionAPI } from "@step-harness/coding-agent";
 
-export default function (step: ExtensionAPI) {
+export default function (pi: ExtensionAPI) {
   // Subscribe to events
-  step.on("event_name", async (event, ctx) => {
+  pi.on("event_name", async (event, ctx) => {
     // ctx.ui for user interaction
     const ok = await ctx.ui.confirm("Title", "Are you sure?");
     ctx.ui.notify("Done!", "info");
@@ -169,16 +169,16 @@ export default function (step: ExtensionAPI) {
   });
 
   // Register tools, commands, shortcuts, flags
-  step.registerTool({ ... });
-  step.registerCommand("name", { ... });
-  step.registerShortcut("ctrl+x", { ... });
-  step.registerFlag("my-flag", { ... });
+  pi.registerTool({ ... });
+  pi.registerCommand("name", { ... });
+  pi.registerShortcut("ctrl+x", { ... });
+  pi.registerFlag("my-flag", { ... });
 }
 ```
 
 Extensions are loaded via [jiti](https://github.com/unjs/jiti), so TypeScript works without compilation.
 
-If the factory returns a `Promise`, step awaits it before continuing startup. That means async initialization completes before `session_start`, before `resources_discover`, and before provider registrations queued via `step.registerProvider()` are flushed.
+If the factory returns a `Promise`, step awaits it before continuing startup. That means async initialization completes before `session_start`, before `resources_discover`, and before provider registrations queued via `pi.registerProvider()` are flushed.
 
 ### Async factory functions
 
@@ -187,7 +187,7 @@ Use an async factory for one-time startup work such as fetching remote configura
 ```typescript
 import type { ExtensionAPI } from "@step-harness/coding-agent";
 
-export default async function (step: ExtensionAPI) {
+export default async function (pi: ExtensionAPI) {
   const response = await fetch("http://localhost:1234/v1/models");
   const payload = (await response.json()) as {
     data: Array<{
@@ -198,7 +198,7 @@ export default async function (step: ExtensionAPI) {
     }>;
   };
 
-  step.registerProvider("local-openai", {
+  pi.registerProvider("local-openai", {
     baseUrl: "http://localhost:1234/v1",
     apiKey: "$LOCAL_OPENAI_API_KEY",
     api: "openai-completions",
@@ -325,7 +325,7 @@ user sends another prompt ◄─────────────────
   ├─► session_start { reason: "fork", previousSessionFile }
   └─► resources_discover { reason: "startup" }
 
-/name or step.setSessionName()
+/name or pi.setSessionName()
   └─► session_info_changed
 
 /compact or auto-compaction
@@ -341,7 +341,7 @@ user sends another prompt ◄─────────────────
   ├─► thinking_level_select (if model change changes/clamps thinking level)
   └─► model_select
 
-thinking level changes (settings, keybinding, step.setThinkingLevel())
+thinking level changes (settings, keybinding, pi.setThinkingLevel())
   └─► thinking_level_select
 
 exit (Ctrl+C, Ctrl+D, SIGHUP, SIGTERM)
@@ -355,7 +355,7 @@ exit (Ctrl+C, Ctrl+D, SIGHUP, SIGTERM)
 Fired before step decides whether to trust a project with dynamic configs (`.stepcode`, `.agents/skills`, or `.claude/skills`). It runs during startup and when session replacement (for example `/resume`) enters a cwd whose trust has not been resolved in the current process. Only user/global extensions and CLI `-e` extensions participate; project-local extensions are not loaded until after trust is resolved.
 
 ```typescript
-step.on("project_trust", async (event, ctx) => {
+pi.on("project_trust", async (event, ctx) => {
   // event.cwd - current working directory
   // ctx has a limited trust context: cwd, mode, hasUI, and select/confirm/input/notify UI helpers
   if (await ctx.ui.confirm("Trust project?", event.cwd)) {
@@ -375,7 +375,7 @@ Fired after `session_start` so extensions can contribute additional skill, promp
 The startup path uses `reason: "startup"`. Reload uses `reason: "reload"`.
 
 ```typescript
-step.on("resources_discover", async (event, _ctx) => {
+pi.on("resources_discover", async (event, _ctx) => {
   // event.cwd - current working directory
   // event.reason - "startup" | "reload"
   return {
@@ -395,7 +395,7 @@ See [Session Format](session-format.md) for session storage internals and the Se
 Fired when a session is started, loaded, or reloaded.
 
 ```typescript
-step.on("session_start", async (event, ctx) => {
+pi.on("session_start", async (event, ctx) => {
   // event.reason - "startup" | "reload" | "new" | "resume" | "fork"
   // event.previousSessionFile - present for "new", "resume", and "fork"
   ctx.ui.notify(`Session: ${ctx.sessionManager.getSessionFile() ?? "ephemeral"}`, "info");
@@ -404,10 +404,10 @@ step.on("session_start", async (event, ctx) => {
 
 #### session_info_changed
 
-Fired when the current session display name is set via `/name`, RPC, or `step.setSessionName()`.
+Fired when the current session display name is set via `/name`, RPC, or `pi.setSessionName()`.
 
 ```typescript
-step.on("session_info_changed", async (event, ctx) => {
+pi.on("session_info_changed", async (event, ctx) => {
   // event.name - current normalized name, or undefined if cleared
   ctx.ui.notify(`Session renamed: ${event.name ?? "(none)"}`, "info");
 });
@@ -418,7 +418,7 @@ step.on("session_info_changed", async (event, ctx) => {
 Fired before starting a new session (`/new`) or switching sessions (`/resume`).
 
 ```typescript
-step.on("session_before_switch", async (event, ctx) => {
+pi.on("session_before_switch", async (event, ctx) => {
   // event.reason - "new" or "resume"
   // event.targetSessionFile - session we're switching to (only for "resume")
 
@@ -437,7 +437,7 @@ Do cleanup work in `session_shutdown`, then reestablish any in-memory state in `
 Fired when forking via `/fork` or cloning via `/clone`.
 
 ```typescript
-step.on("session_before_fork", async (event, ctx) => {
+pi.on("session_before_fork", async (event, ctx) => {
   // event.entryId - ID of the selected entry
   // event.position - "before" for /fork, "at" for /clone
   return { cancel: true }; // Cancel fork/clone
@@ -454,7 +454,7 @@ Do cleanup work in `session_shutdown`, then reestablish any in-memory state in `
 Fired on compaction. See [compaction.md](compaction.md) for details.
 
 ```typescript
-step.on("session_before_compact", async (event, ctx) => {
+pi.on("session_before_compact", async (event, ctx) => {
   const { preparation, branchEntries, customInstructions, reason, willRetry, signal } = event;
 
   // reason - "manual" (/compact), "threshold", or "overflow"
@@ -474,14 +474,14 @@ step.on("session_before_compact", async (event, ctx) => {
   };
 });
 
-step.on("session_compact", async (event, ctx) => {
+pi.on("session_compact", async (event, ctx) => {
   // event.compactionEntry - the saved compaction
   // event.fromExtension - whether extension provided it
   // event.reason - "manual" (/compact), "threshold", or "overflow"
   // event.willRetry - whether the aborted turn is retried after compaction (overflow recovery)
 });
 
-step.on("session_compact_failed", async (event, ctx) => {
+pi.on("session_compact_failed", async (event, ctx) => {
   // event.reason - "manual" (/compact), "threshold", or "overflow"
   // event.errorMessage - present for non-abort failures
   // event.aborted - true for cancelled/aborted compactions
@@ -495,7 +495,7 @@ step.on("session_compact_failed", async (event, ctx) => {
 Fired on `/tree` navigation. See [Sessions](sessions.md) for tree navigation concepts.
 
 ```typescript
-step.on("session_before_tree", async (event, ctx) => {
+pi.on("session_before_tree", async (event, ctx) => {
   const { preparation, signal } = event;
   return { cancel: true };
   // OR provide custom summary:
@@ -508,7 +508,7 @@ step.on("session_before_tree", async (event, ctx) => {
   };
 });
 
-step.on("session_tree", async (event, ctx) => {
+pi.on("session_tree", async (event, ctx) => {
   // event.newLeafId, oldLeafId, summaryEntry, fromExtension
 });
 ```
@@ -518,7 +518,7 @@ step.on("session_tree", async (event, ctx) => {
 Fired before a started session runtime is torn down. Use this to clean up resources opened from `session_start` or other session-scoped hooks.
 
 ```typescript
-step.on("session_shutdown", async (event, ctx) => {
+pi.on("session_shutdown", async (event, ctx) => {
   // event.reason - "quit" | "reload" | "new" | "resume" | "fork"
   // event.targetSessionFile - destination session for session replacement flows
   // Cleanup, save state, etc.
@@ -532,7 +532,7 @@ step.on("session_shutdown", async (event, ctx) => {
 Fired after user submits prompt, before agent loop. Can inject a message and/or modify the system prompt.
 
 ```typescript
-step.on("before_agent_start", async (event, ctx) => {
+pi.on("before_agent_start", async (event, ctx) => {
   // event.prompt - user's prompt text
   // event.images - attached images (if any)
   // event.systemPrompt - current chained system prompt for this handler
@@ -569,13 +569,13 @@ Inside `before_agent_start`, `event.systemPrompt` and `ctx.getSystemPrompt()` bo
 `agent_start` fires when a low-level agent run begins. `agent_end` fires when that run ends, but Step may still auto-retry, auto-compact and retry, or continue with queued follow-up messages. Use `agent_settled` for status integrations that need to know Step will not continue running automatically.
 
 ```typescript
-step.on("agent_start", async (_event, ctx) => {});
+pi.on("agent_start", async (_event, ctx) => {});
 
-step.on("agent_end", async (event, ctx) => {
+pi.on("agent_end", async (event, ctx) => {
   // event.messages - messages from this low-level run
 });
 
-step.on("agent_settled", async (_event, ctx) => {
+pi.on("agent_settled", async (_event, ctx) => {
   // ctx.isIdle() is true here unless another extension started a new run.
 });
 ```
@@ -587,13 +587,13 @@ Notification-only lifecycle events for blocking user-facing extension UI prompts
 Nested or overlapping prompts are coalesced into one outer waiting span. Handlers are invoked best-effort and are not awaited before showing or closing the prompt.
 
 ```typescript
-step.on("ui_prompt_start", async (event, ctx) => {
+pi.on("ui_prompt_start", async (event, ctx) => {
   // event.reason === "ui_prompt"
   // event.kind: "select" | "confirm" | "input" | "editor" | "custom"
   // event.title: prompt title when available
 });
 
-step.on("ui_prompt_end", async (event, ctx) => {
+pi.on("ui_prompt_end", async (event, ctx) => {
   // Step is no longer waiting on that UI prompt span.
 });
 ```
@@ -603,11 +603,11 @@ step.on("ui_prompt_end", async (event, ctx) => {
 Fired for each turn (one LLM response + tool calls).
 
 ```typescript
-step.on("turn_start", async (event, ctx) => {
+pi.on("turn_start", async (event, ctx) => {
   // event.turnIndex, event.timestamp
 });
 
-step.on("turn_end", async (event, ctx) => {
+pi.on("turn_end", async (event, ctx) => {
   // event.turnIndex, event.message, event.toolResults
 });
 ```
@@ -621,16 +621,16 @@ Fired for message lifecycle updates.
 - `message_end` handlers can return `{ message }` to replace the finalized message. The replacement must keep the same `role`.
 
 ```typescript
-step.on("message_start", async (event, ctx) => {
+pi.on("message_start", async (event, ctx) => {
   // event.message
 });
 
-step.on("message_update", async (event, ctx) => {
+pi.on("message_update", async (event, ctx) => {
   // event.message
   // event.assistantMessageEvent (token-by-token stream event)
 });
 
-step.on("message_end", async (event, ctx) => {
+pi.on("message_end", async (event, ctx) => {
   if (event.message.role !== "assistant") return;
 
   return {
@@ -659,15 +659,15 @@ In parallel tool mode:
 - final `toolResult` message events are still emitted later in assistant source order
 
 ```typescript
-step.on("tool_execution_start", async (event, ctx) => {
+pi.on("tool_execution_start", async (event, ctx) => {
   // event.toolCallId, event.toolName, event.args
 });
 
-step.on("tool_execution_update", async (event, ctx) => {
+pi.on("tool_execution_update", async (event, ctx) => {
   // event.toolCallId, event.toolName, event.args, event.partialResult
 });
 
-step.on("tool_execution_end", async (event, ctx) => {
+pi.on("tool_execution_end", async (event, ctx) => {
   // event.toolCallId, event.toolName, event.result, event.isError
 });
 ```
@@ -677,7 +677,7 @@ step.on("tool_execution_end", async (event, ctx) => {
 Fired before each LLM call. Modify messages non-destructively. See [Session Format](session-format.md) for message types.
 
 ```typescript
-step.on("context", async (event, ctx) => {
+pi.on("context", async (event, ctx) => {
   // event.messages - deep copy, safe to modify
   const filtered = event.messages.filter(m => !shouldPrune(m));
   return { messages: filtered };
@@ -691,7 +691,7 @@ Fired after the outgoing HTTP headers are assembled. Use it to add, override, or
 Handlers mutate `event.headers` in place. Set a key to a string to add or override it, or to `null` to delete it.
 
 ```typescript
-step.on("before_provider_headers", (event, ctx) => {
+pi.on("before_provider_headers", (event, ctx) => {
   // Add or override — e.g. a session id for gateway tracing/attribution
   event.headers["x-session-id"] = ctx.sessionManager.getSessionId();
 
@@ -709,7 +709,7 @@ Fired after the provider-specific payload is built, right before the request is 
 This hook can rewrite provider-level system instructions or remove them entirely. Those payload-level changes are not reflected by `ctx.getSystemPrompt()`, which reports Step's system prompt string rather than the final serialized provider payload.
 
 ```typescript
-step.on("before_provider_request", (event, ctx) => {
+pi.on("before_provider_request", (event, ctx) => {
   console.log(JSON.stringify(event.payload, null, 2));
 
   // Optional: replace payload
@@ -724,7 +724,7 @@ This is mainly useful for debugging provider serialization and cache behavior.
 Fired after an HTTP response is received and before its stream body is consumed. Handlers run in extension load order.
 
 ```typescript
-step.on("after_provider_response", (event, ctx) => {
+pi.on("after_provider_response", (event, ctx) => {
   // event.status - HTTP status code
   // event.headers - normalized response headers
   if (event.status === 429) {
@@ -742,7 +742,7 @@ Header availability depends on provider and transport. Providers that abstract H
 Fired when the model changes via `/model` command, model cycling (`Ctrl+P`), or session restore.
 
 ```typescript
-step.on("model_select", async (event, ctx) => {
+pi.on("model_select", async (event, ctx) => {
   // event.model - newly selected model
   // event.previousModel - previous model (undefined if first selection)
   // event.source - "set" | "cycle" | "restore"
@@ -763,7 +763,7 @@ Use this to update UI elements (status bars, footers) or perform model-specific 
 Fired when the thinking level changes. This is notification-only; handler return values are ignored.
 
 ```typescript
-step.on("thinking_level_select", async (event, ctx) => {
+pi.on("thinking_level_select", async (event, ctx) => {
   // event.level - newly selected thinking level
   // event.previousLevel - previous thinking level
 
@@ -771,7 +771,7 @@ step.on("thinking_level_select", async (event, ctx) => {
 });
 ```
 
-Use this to update extension UI when `step.setThinkingLevel()`, model changes, or built-in thinking-level controls change the active thinking level.
+Use this to update extension UI when `pi.setThinkingLevel()`, model changes, or built-in thinking-level controls change the active thinking level.
 
 ### Tool Events
 
@@ -795,7 +795,7 @@ Behavior guarantees:
 ```typescript
 import { isToolCallEventType } from "@step-harness/coding-agent";
 
-step.on("tool_call", async (event, ctx) => {
+pi.on("tool_call", async (event, ctx) => {
   // event.toolName - "bash", "read", "write", "edit", etc.
   // event.toolCallId
   // event.input - tool parameters (mutable)
@@ -832,7 +832,7 @@ Use `isToolCallEventType` with explicit type parameters:
 import { isToolCallEventType } from "@step-harness/coding-agent";
 import type { MyToolInput } from "my-extension";
 
-step.on("tool_call", (event) => {
+pi.on("tool_call", (event) => {
   if (isToolCallEventType<"my_tool", MyToolInput>("my_tool", event)) {
     event.input.action;  // typed
   }
@@ -855,7 +855,7 @@ Use `ctx.signal` for nested async work inside the handler. This lets Esc cancel 
 ```typescript
 import { isBashToolResult } from "@step-harness/coding-agent";
 
-step.on("tool_result", async (event, ctx) => {
+pi.on("tool_result", async (event, ctx) => {
   // event.toolName, event.toolCallId, event.input
   // event.content, event.details, event.isError, event.usage
 
@@ -883,7 +883,7 @@ Fired when user executes `!` or `!!` commands. **Can intercept.**
 ```typescript
 import { createLocalBashOperations } from "@step-harness/coding-agent";
 
-step.on("user_bash", (event, ctx) => {
+pi.on("user_bash", (event, ctx) => {
   // event.command - the bash command
   // event.excludeFromContext - true if !! prefix
   // event.cwd - working directory
@@ -920,7 +920,7 @@ Fired when user input is received, after extension commands are checked but befo
 5. Agent processing begins (`before_agent_start`, etc.)
 
 ```typescript
-step.on("input", async (event, ctx) => {
+pi.on("input", async (event, ctx) => {
   // event.text - raw input (before skill/template expansion)
   // event.images - attached images, if any
   // event.source - "interactive" (typed), "rpc" (API), or "extension" (via sendUserMessage)
@@ -983,8 +983,8 @@ Use `CONFIG_DIR_NAME` instead of hardcoding `.stepcode` when constructing projec
 import { CONFIG_DIR_NAME, type ExtensionAPI } from "@step-harness/coding-agent";
 import { join } from "node:path";
 
-export default function (step: ExtensionAPI) {
-  step.on("session_start", (_event, ctx) => {
+export default function (pi: ExtensionAPI) {
+  pi.on("session_start", (_event, ctx) => {
     const projectConfigPath = join(ctx.cwd, CONFIG_DIR_NAME, "my-extension.json");
     // ...
   });
@@ -1029,7 +1029,7 @@ Use this for abort-aware nested work started by extension handlers, for example:
 It is usually `undefined` in idle or non-turn contexts such as session events, extension commands, and shortcuts fired while step is idle.
 
 ```typescript
-step.on("tool_result", async (event, ctx) => {
+pi.on("tool_result", async (event, ctx) => {
   const response = await fetch("https://example.com/api", {
     method: "POST",
     body: JSON.stringify(event),
@@ -1056,7 +1056,7 @@ Request a graceful shutdown of step.
 Emits `session_shutdown` event to all extensions before exiting. Available in all contexts (event handlers, tools, commands, shortcuts).
 
 ```typescript
-step.on("tool_call", (event, ctx) => {
+pi.on("tool_call", (event, ctx) => {
   if (isFatal(event.input)) {
     ctx.shutdown();
   }
@@ -1100,7 +1100,7 @@ Returns Step's current system prompt string.
 - If later-loaded extensions run after yours, they can still change what is ultimately sent.
 
 ```typescript
-step.on("before_agent_start", (event, ctx) => {
+pi.on("before_agent_start", (event, ctx) => {
   const prompt = ctx.getSystemPrompt();
   console.log(`System prompt length: ${prompt.length}`);
 });
@@ -1128,7 +1128,7 @@ This reports the current base prompt inputs. It does not include per-turn `befor
 Wait for the agent to fully settle, including automatic retries, auto-compaction retries, and queued continuations:
 
 ```typescript
-step.registerCommand("my-cmd", {
+pi.registerCommand("my-cmd", {
   handler: async (args, ctx) => {
     await ctx.waitForIdle();
     // Agent is now idle, safe to modify session
@@ -1237,7 +1237,7 @@ To discover available sessions, use the static `SessionManager.list()` or `Sessi
 ```typescript
 import { SessionManager } from "@step-harness/coding-agent";
 
-step.registerCommand("switch", {
+pi.registerCommand("switch", {
   description: "Switch to another session",
   handler: async (args, ctx) => {
     const sessions = await SessionManager.list(ctx.cwd);
@@ -1271,7 +1271,7 @@ Lifecycle and footguns:
 Safe pattern:
 
 ```typescript
-step.registerCommand("handoff", {
+pi.registerCommand("handoff", {
   handler: async (_args, ctx) => {
     const kickoff = "Continue from the replacement session";
     await ctx.newSession({
@@ -1286,14 +1286,14 @@ step.registerCommand("handoff", {
 Unsafe pattern:
 
 ```typescript
-step.registerCommand("handoff", {
+pi.registerCommand("handoff", {
   handler: async (_args, ctx) => {
     const oldSessionManager = ctx.sessionManager;
     await ctx.newSession({
       withSession: async (_ctx) => {
         // stale old objects: do not do this
         oldSessionManager.getSessionFile();
-        step.sendUserMessage("wrong");
+        pi.sendUserMessage("wrong");
       },
     });
   },
@@ -1305,7 +1305,7 @@ step.registerCommand("handoff", {
 Run the same reload flow as `/reload`.
 
 ```typescript
-step.registerCommand("reload-runtime", {
+pi.registerCommand("reload-runtime", {
   description: "Reload extensions, skills, prompts, themes, and context files",
   handler: async (_args, ctx) => {
     await ctx.reload();
@@ -1332,8 +1332,8 @@ Example tool the LLM can call to trigger reload:
 import type { ExtensionAPI } from "@step-harness/coding-agent";
 import { Type } from "typebox";
 
-export default function (step: ExtensionAPI) {
-  step.registerCommand("reload-runtime", {
+export default function (pi: ExtensionAPI) {
+  pi.registerCommand("reload-runtime", {
     description: "Reload extensions, skills, prompts, themes, and context files",
     handler: async (_args, ctx) => {
       await ctx.reload();
@@ -1341,13 +1341,13 @@ export default function (step: ExtensionAPI) {
     },
   });
 
-  step.registerTool({
+  pi.registerTool({
     name: "reload_runtime",
     label: "Reload Runtime",
     description: "Reload extensions, skills, prompts, themes, and context files",
     parameters: Type.Object({}),
     async execute() {
-      step.sendUserMessage("/reload-runtime", { deliverAs: "followUp" });
+      pi.sendUserMessage("/reload-runtime", { deliverAs: "followUp" });
       return {
         content: [{ type: "text", text: "Queued /reload-runtime as a follow-up command." }],
       };
@@ -1358,17 +1358,17 @@ export default function (step: ExtensionAPI) {
 
 ## ExtensionAPI Methods
 
-### step.on(event, handler)
+### pi.on(event, handler)
 
 Subscribe to events. See [Events](#events) for event types and return values.
 
-### step.registerTool(definition)
+### pi.registerTool(definition)
 
 Register a custom tool callable by the LLM. See [Custom Tools](#custom-tools) for full details.
 
-`step.registerTool()` works both during extension load and after startup. You can call it inside `session_start`, command handlers, or other event handlers. New tools are refreshed immediately in the same session, so they appear in `step.getAllTools()` and are callable by the LLM without `/reload`.
+`pi.registerTool()` works both during extension load and after startup. You can call it inside `session_start`, command handlers, or other event handlers. New tools are refreshed immediately in the same session, so they appear in `pi.getAllTools()` and are callable by the LLM without `/reload`.
 
-Use `step.setActiveTools()` to enable or disable tools (including dynamically added tools) at runtime.
+Use `pi.setActiveTools()` to enable or disable tools (including dynamically added tools) at runtime.
 
 Use `promptSnippet` to opt a custom tool into a one-line entry in `Available tools`, and `promptGuidelines` to append tool-specific bullets to the default `Guidelines` section when the tool is active.
 
@@ -1380,7 +1380,7 @@ See [dynamic-tools.ts](../examples/extensions/dynamic-tools.ts) for a full examp
 import { Type } from "typebox";
 import { StringEnum } from "@step-harness/providers";
 
-step.registerTool({
+pi.registerTool({
   name: "my_tool",
   label: "My Tool",
   description: "What this tool does",
@@ -1413,12 +1413,12 @@ step.registerTool({
 });
 ```
 
-### step.sendMessage(message, options?)
+### pi.sendMessage(message, options?)
 
-Inject a custom message into the session. Custom messages participate in LLM context. For durable TUI-only content that should not be sent to the LLM, use [`step.appendEntry()`](#stepappendentrycustomtype-data) with [`step.registerEntryRenderer()`](#stepregisterentryrenderercustomtype-renderer).
+Inject a custom message into the session. Custom messages participate in LLM context. For durable TUI-only content that should not be sent to the LLM, use [`pi.appendEntry()`](#piappendentrycustomtype-data) with [`pi.registerEntryRenderer()`](#piregisterentryrenderercustomtype-renderer).
 
 ```typescript
-step.sendMessage({
+pi.sendMessage({
   customType: "my-extension",
   content: "Message text",
   display: true,
@@ -1436,26 +1436,26 @@ step.sendMessage({
   - `"nextTurn"` - Queued for next user prompt. Does not interrupt or trigger anything.
 - `triggerTurn: true` - If agent is idle, trigger an LLM response immediately. Only applies to `"steer"` and `"followUp"` modes (ignored for `"nextTurn"`).
 
-### step.sendUserMessage(content, options?)
+### pi.sendUserMessage(content, options?)
 
 Send a user message to the agent. Unlike `sendMessage()` which sends custom messages, this sends an actual user message that appears as if typed by the user. Always triggers a turn.
 
 ```typescript
 // Simple text message
-step.sendUserMessage("What is 2+2?");
+pi.sendUserMessage("What is 2+2?");
 
 // With content array (text + images)
-step.sendUserMessage([
+pi.sendUserMessage([
   { type: "text", text: "Describe this image:" },
   { type: "image", source: { type: "base64", mediaType: "image/png", data: "..." } },
 ]);
 
 // During streaming - must specify delivery mode
-step.sendUserMessage("Focus on error handling", { deliverAs: "steer" });
-step.sendUserMessage("And then summarize", { deliverAs: "followUp" });
+pi.sendUserMessage("Focus on error handling", { deliverAs: "steer" });
+pi.sendUserMessage("And then summarize", { deliverAs: "followUp" });
 
 // Opt in to extension command dispatch and skill/prompt template expansion
-step.sendUserMessage("/review src/index.ts", { expandPromptTemplates: true });
+pi.sendUserMessage("/review src/index.ts", { expandPromptTemplates: true });
 ```
 
 **Options:**
@@ -1468,16 +1468,16 @@ When not streaming, the message is sent immediately and triggers a new turn. Whe
 
 See [send-user-message.ts](../examples/extensions/send-user-message.ts) for a complete example.
 
-### step.appendEntry(customType, data?)
+### pi.appendEntry(customType, data?)
 
-Persist extension data. Custom entries do NOT participate in LLM context. In interactive mode, they can also render inside the chat transcript when paired with `step.registerEntryRenderer()`.
+Persist extension data. Custom entries do NOT participate in LLM context. In interactive mode, they can also render inside the chat transcript when paired with `pi.registerEntryRenderer()`.
 
 ```typescript
-step.appendEntry("my-state", { count: 42 });
-step.appendEntry("status-card", { title: "Indexed files", count: 17 });
+pi.appendEntry("my-state", { count: 42 });
+pi.appendEntry("status-card", { title: "Indexed files", count: 17 });
 
 // Restore on reload
-step.on("session_start", async (_event, ctx) => {
+pi.on("session_start", async (_event, ctx) => {
   for (const entry of ctx.sessionManager.getEntries()) {
     if (entry.type === "custom" && entry.customType === "my-state") {
       // Reconstruct from entry.data
@@ -1486,35 +1486,35 @@ step.on("session_start", async (_event, ctx) => {
 });
 ```
 
-### step.setSessionName(name)
+### pi.setSessionName(name)
 
 Set the session display name (shown in session selector instead of first message).
 
 ```typescript
-step.setSessionName("Refactor auth module");
+pi.setSessionName("Refactor auth module");
 ```
 
-### step.getSessionName()
+### pi.getSessionName()
 
 Get the current session name, if set.
 
 ```typescript
-const name = step.getSessionName();
+const name = pi.getSessionName();
 if (name) {
   console.log(`Session: ${name}`);
 }
 ```
 
-### step.setLabel(entryId, label)
+### pi.setLabel(entryId, label)
 
 Set or clear a label on an entry. Labels are user-defined markers for bookmarking and navigation (shown in `/tree` selector).
 
 ```typescript
 // Set a label
-step.setLabel(entryId, "checkpoint-before-refactor");
+pi.setLabel(entryId, "checkpoint-before-refactor");
 
 // Clear a label
-step.setLabel(entryId, undefined);
+pi.setLabel(entryId, undefined);
 
 // Read labels via sessionManager
 const label = ctx.sessionManager.getLabel(entryId);
@@ -1522,14 +1522,14 @@ const label = ctx.sessionManager.getLabel(entryId);
 
 Labels persist in the session and survive restarts. Use them to mark important points (turns, checkpoints) in the conversation tree.
 
-### step.registerCommand(name, options)
+### pi.registerCommand(name, options)
 
 Register a command.
 
 If multiple extensions register the same command name, step keeps them all and assigns numeric invocation suffixes in load order, for example `/review:1` and `/review:2`.
 
 ```typescript
-step.registerCommand("stats", {
+pi.registerCommand("stats", {
   description: "Show session statistics",
   handler: async (args, ctx) => {
     const count = ctx.sessionManager.getEntries().length;
@@ -1543,7 +1543,7 @@ Optional: add argument auto-completion for `/command ...`:
 ```typescript
 import type { AutocompleteItem } from "@step-harness/pi-tui";
 
-step.registerCommand("deploy", {
+pi.registerCommand("deploy", {
   description: "Deploy to an environment",
   getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
     const envs = ["dev", "staging", "prod"];
@@ -1557,18 +1557,18 @@ step.registerCommand("deploy", {
 });
 ```
 
-### step.setUnavailableTools(names)
+### pi.setUnavailableTools(names)
 
 Declare tool names unavailable for this extension's current runtime. This works during extension loading and after startup, and also applies to matching tools registered later.
 
 ```typescript
-export default function (step: ExtensionAPI) {
-  step.setUnavailableTools(["remote_lookup"]);
+export default function (pi: ExtensionAPI) {
+  pi.setUnavailableTools(["remote_lookup"]);
 
-  step.registerCommand("enable-remote-lookup", {
+  pi.registerCommand("enable-remote-lookup", {
     handler: async () => {
       // Clear this extension's declaration after its prerequisite is satisfied.
-      step.setUnavailableTools([]);
+      pi.setUnavailableTools([]);
     },
   });
 }
@@ -1580,13 +1580,13 @@ The requested active selection is retained while availability changes. Releasing
 
 Use this for tools whose prerequisites or session policy make them unavailable. Tools that require conditional confirmation can stay available. Availability controls discovery and selection; keep execution-time permission checks in the tool or `tool_call` hook. A failed tool call does not automatically change availability.
 
-### step.getCommands()
+### pi.getCommands()
 
 Get the slash commands available for invocation via `prompt` in the current session. Includes extension commands, prompt templates, and skill commands.
 The list matches the RPC `get_commands` ordering: extensions first, then templates, then skills.
 
 ```typescript
-const commands = step.getCommands();
+const commands = pi.getCommands();
 const bySource = commands.filter((command) => command.source === "extension");
 const userScoped = commands.filter((command) => command.sourceInfo.scope === "user");
 ```
@@ -1613,11 +1613,11 @@ Use `sourceInfo` as the canonical provenance field. Do not infer ownership from 
 Built-in interactive commands (like `/model` and `/settings`) are not included here. They are handled only in interactive
 mode and would not execute if sent via `prompt`.
 
-### step.registerMessageRenderer(customType, renderer)
+### pi.registerMessageRenderer(customType, renderer)
 
-Register a custom TUI renderer for custom messages with your `customType`. Custom messages are created with `step.sendMessage()` and participate in LLM context. See [Custom UI](#custom-ui).
+Register a custom TUI renderer for custom messages with your `customType`. Custom messages are created with `pi.sendMessage()` and participate in LLM context. See [Custom UI](#custom-ui).
 
-### step.registerMarkdownTransformer(transformer)
+### pi.registerMarkdownTransformer(transformer)
 
 Register a transformer for the Markdown in normal user text, assistant text, and thinking blocks. Transformers run in extension load order, and each transformer receives the Markdown returned by the previous transformer. After the chain finishes, Step renders the transformed content with its built-in renderer.
 
@@ -1630,7 +1630,7 @@ The transformer receives the Markdown string and a context with:
 Return the transformed Markdown:
 
 ```typescript
-step.registerMarkdownTransformer((markdown, { messageType, isStreaming }) => {
+pi.registerMarkdownTransformer((markdown, { messageType, isStreaming }) => {
   if (isStreaming || messageType === "assistant-thinking") return markdown;
   return markdown.replaceAll("-->", "→");
 });
@@ -1638,14 +1638,14 @@ step.registerMarkdownTransformer((markdown, { messageType, isStreaming }) => {
 
 If a transformer throws, Step keeps the Markdown produced so far and continues with the next transformer. The hook is display-only: the original message remains unchanged in the session and model context. It runs for new user messages, assistant streaming updates, restored session messages, and terminal width changes, so transformers should remain synchronous and inexpensive.
 
-### step.registerEntryRenderer(customType, renderer)
+### pi.registerEntryRenderer(customType, renderer)
 
-Register a custom TUI renderer for custom entries with your `customType`. Custom entries are created with `step.appendEntry()` and do not participate in LLM context.
+Register a custom TUI renderer for custom entries with your `customType`. Custom entries are created with `pi.appendEntry()` and do not participate in LLM context.
 
 ```typescript
 import { Box, Text } from "@step-harness/pi-tui";
 
-step.registerEntryRenderer("status-card", (entry, { expanded }, theme) => {
+pi.registerEntryRenderer("status-card", (entry, { expanded }, theme) => {
   const data = entry.data as { title: string; count: number };
   const box = new Box(1, 1, (text) => theme.bg("customMessageBg", text));
   box.addChild(new Text(`${theme.bold(data.title)}: ${data.count}`));
@@ -1655,15 +1655,15 @@ step.registerEntryRenderer("status-card", (entry, { expanded }, theme) => {
   return box;
 });
 
-step.appendEntry("status-card", { title: "Indexed files", count: 17 });
+pi.appendEntry("status-card", { title: "Indexed files", count: 17 });
 ```
 
-### step.registerShortcut(shortcut, options)
+### pi.registerShortcut(shortcut, options)
 
 Register a keyboard shortcut. See [keybindings.md](keybindings.md) for the shortcut format and built-in keybindings.
 
 ```typescript
-step.registerShortcut("ctrl+shift+p", {
+pi.registerShortcut("ctrl+shift+p", {
   description: "Toggle plan mode",
   handler: async (ctx) => {
     ctx.ui.notify("Toggled!");
@@ -1671,39 +1671,39 @@ step.registerShortcut("ctrl+shift+p", {
 });
 ```
 
-### step.registerFlag(name, options)
+### pi.registerFlag(name, options)
 
 Register a CLI flag.
 
 ```typescript
-step.registerFlag("plan", {
+pi.registerFlag("plan", {
   description: "Start in plan mode",
   type: "boolean",
   default: false,
 });
 
 // Check value
-if (step.getFlag("plan")) {
+if (pi.getFlag("plan")) {
   // Plan mode enabled
 }
 ```
 
-### step.exec(command, args, options?)
+### pi.exec(command, args, options?)
 
 Execute a shell command.
 
 ```typescript
-const result = await step.exec("git", ["status"], { signal, timeout: 5000 });
+const result = await pi.exec("git", ["status"], { signal, timeout: 5000 });
 // result.stdout, result.stderr, result.code, result.killed
 ```
 
-### step.getActiveTools() / step.getAllTools() / step.setActiveTools(names)
+### pi.getActiveTools() / pi.getAllTools() / pi.setActiveTools(names)
 
-Manage active tools. This works for both built-in tools and dynamically registered tools. `step.getActiveTools()` returns the active tool names as `string[]`; `step.getAllTools()` returns metadata for configured tools that remain available after CLI selectors and extension availability declarations.
+Manage active tools. This works for both built-in tools and dynamically registered tools. `pi.getActiveTools()` returns the active tool names as `string[]`; `pi.getAllTools()` returns metadata for configured tools that remain available after CLI selectors and extension availability declarations.
 
 ```typescript
-const active = step.getActiveTools(); // ["read", "bash", ...]
-const all = step.getAllTools();
+const active = pi.getActiveTools(); // ["read", "bash", ...]
+const all = pi.getAllTools();
 // all = [{
 //   name: "read",
 //   description: "Read file contents...",
@@ -1713,50 +1713,50 @@ const all = step.getAllTools();
 // }, ...]
 const builtinTools = all.filter((t) => t.sourceInfo.source === "builtin");
 const extensionTools = all.filter((t) => t.sourceInfo.source !== "builtin" && t.sourceInfo.source !== "sdk");
-step.setActiveTools([...new Set([...active, "my_custom_tool"])]); // Keep current tools and enable my_custom_tool
-step.setActiveTools(["read", "bash"]); // Switch to read-only
+pi.setActiveTools([...new Set([...active, "my_custom_tool"])]); // Keep current tools and enable my_custom_tool
+pi.setActiveTools(["read", "bash"]); // Switch to read-only
 ```
 
-`step.getAllTools()` returns `name`, `description`, `parameters`, `promptGuidelines`, and `sourceInfo`.
+`pi.getAllTools()` returns `name`, `description`, `parameters`, `promptGuidelines`, and `sourceInfo`.
 
 Typical `sourceInfo.source` values:
 - `builtin` for built-in tools
 - `sdk` for tools passed via `createAgentSession({ customTools })`
 - extension source metadata for tools registered by extensions
 
-### step.setModel(model)
+### pi.setModel(model)
 
 Set the current model. Returns `false` if no API key is available for the model. See [models.md](models.md) for configuring custom models.
 
 ```typescript
 const model = ctx.modelRegistry.find("anthropic", "claude-sonnet-4-5");
 if (model) {
-  const success = await step.setModel(model);
+  const success = await pi.setModel(model);
   if (!success) {
     ctx.ui.notify("No API key for this model", "error");
   }
 }
 ```
 
-### step.getThinkingLevel() / step.setThinkingLevel(level)
+### pi.getThinkingLevel() / pi.setThinkingLevel(level)
 
 Get or set the thinking level. Level is clamped to model capabilities (non-reasoning models always use "off"). Changes emit `thinking_level_select`.
 
 ```typescript
-const current = step.getThinkingLevel();  // "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
-step.setThinkingLevel("high");
+const current = pi.getThinkingLevel();  // "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
+pi.setThinkingLevel("high");
 ```
 
-### step.events
+### pi.events
 
 Shared event bus for communication between extensions:
 
 ```typescript
-step.events.on("my:event", (data) => { ... });
-step.events.emit("my:event", { ... });
+pi.events.on("my:event", (data) => { ... });
+pi.events.emit("my:event", { ... });
 ```
 
-### step.registerProvider(name, config)
+### pi.registerProvider(name, config)
 
 Register or override a model provider dynamically. Useful for proxies, custom endpoints, or team-wide model configurations.
 
@@ -1795,10 +1795,10 @@ const provider = createProvider({
   api: openAICompletionsApi(),
 });
 
-step.registerProvider(provider);
+pi.registerProvider(provider);
 
 // Register a new provider with custom models
-step.registerProvider("my-proxy", {
+pi.registerProvider("my-proxy", {
   name: "My Proxy",
   baseUrl: "https://proxy.example.com",
   apiKey: "$PROXY_API_KEY",  // env var reference
@@ -1817,7 +1817,7 @@ step.registerProvider("my-proxy", {
 });
 
 // Register a live llama.cpp catalog without persisting discovered models
-step.registerProvider("llama.cpp", {
+pi.registerProvider("llama.cpp", {
   baseUrl: "http://localhost:8080/v1",
   apiKey: "local",
   api: "openai-completions",
@@ -1837,12 +1837,12 @@ step.registerProvider("llama.cpp", {
 });
 
 // Override baseUrl for an existing provider (keeps all models)
-step.registerProvider("anthropic", {
+pi.registerProvider("anthropic", {
   baseUrl: "https://proxy.example.com"
 });
 
 // Register provider with OAuth support for /login
-step.registerProvider("corporate-ai", {
+pi.registerProvider("corporate-ai", {
   baseUrl: "https://ai.corp.com",
   api: "openai-responses",
   models: [...],
@@ -1882,17 +1882,17 @@ The object form accepts a complete `Provider`, including native `auth`, `getMode
 
 See [custom-provider.md](custom-provider.md) for advanced topics: custom streaming APIs, OAuth details, model definition reference.
 
-### step.unregisterProvider(name)
+### pi.unregisterProvider(name)
 
 Remove a previously registered provider and its models. Built-in models that were overridden by the provider are restored. Has no effect if the provider was not registered.
 
 Like `registerProvider`, this takes effect immediately when called after the initial load phase, so a `/reload` is not required.
 
 ```typescript
-step.registerCommand("my-setup-teardown", {
+pi.registerCommand("my-setup-teardown", {
   description: "Remove the custom proxy provider",
   handler: async (_args, _ctx) => {
-    step.unregisterProvider("my-proxy");
+    pi.unregisterProvider("my-proxy");
   },
 });
 ```
@@ -1902,11 +1902,11 @@ step.registerCommand("my-setup-teardown", {
 Extensions with state should store it in tool result `details` for proper branching support:
 
 ```typescript
-export default function (step: ExtensionAPI) {
+export default function (pi: ExtensionAPI) {
   let items: string[] = [];
 
   // Reconstruct state from session
-  step.on("session_start", async (_event, ctx) => {
+  pi.on("session_start", async (_event, ctx) => {
     items = [];
     for (const entry of ctx.sessionManager.getBranch()) {
       if (entry.type === "message" && entry.message.role === "toolResult") {
@@ -1917,7 +1917,7 @@ export default function (step: ExtensionAPI) {
     }
   });
 
-  step.registerTool({
+  pi.registerTool({
     name: "my_tool",
     // ...
     async execute(toolCallId, params, signal, onUpdate, ctx) {
@@ -1933,11 +1933,11 @@ export default function (step: ExtensionAPI) {
 
 ## Custom Tools
 
-Register tools the LLM can call via `step.registerTool()`. Tools appear in the system prompt and can have custom rendering.
+Register tools the LLM can call via `pi.registerTool()`. Tools appear in the system prompt and can have custom rendering.
 
 Use `promptSnippet` for a short one-line entry in the `Available tools` section in the default system prompt. If omitted, custom tools are left out of that section.
 
-Use `promptGuidelines` to add tool-specific bullets to the default system prompt `Guidelines` section. These bullets are included only while the tool is active (for example, after `step.setActiveTools([...])`).
+Use `promptGuidelines` to add tool-specific bullets to the default system prompt `Guidelines` section. These bullets are included only while the tool is active (for example, after `pi.setActiveTools([...])`).
 
 **Important:** `promptGuidelines` bullets are appended flat to the `Guidelines` section with no tool name prefix or grouping. Each guideline must name the tool it refers to — avoid "Use this tool when..." because the LLM cannot tell which tool "this" means. Write "Use my_tool when..." instead.
 
@@ -1980,7 +1980,7 @@ import { Type } from "typebox";
 import { StringEnum } from "@step-harness/providers";
 import { Text } from "@step-harness/pi-tui";
 
-step.registerTool({
+pi.registerTool({
   name: "my_tool",
   label: "My Tool",
   description: "What this tool does (shown to LLM)",
@@ -2013,8 +2013,8 @@ step.registerTool({
       details: { progress: 50 },
     });
 
-    // Run commands via step.exec (captured from extension closure)
-    const result = await step.exec("some-command", [], { signal });
+    // Run commands via pi.exec (captured from extension closure)
+    const result = await pi.exec("some-command", [], { signal });
 
     // Return result
     return {
@@ -2056,7 +2056,7 @@ async execute(toolCallId, params) {
 Example: an older session may contain an `edit` tool call with top-level `oldText` and `newText`, while the current schema only accepts `edits: [{ oldText, newText }]`.
 
 ```typescript
-step.registerTool({
+pi.registerTool({
   name: "edit",
   label: "Edit",
   description: "Edit a single file using exact text replacement",
@@ -2147,7 +2147,7 @@ const remoteRead = createReadTool(cwd, {
 });
 
 // Register, checking flag at execution time
-step.registerTool({
+pi.registerTool({
   ...remoteRead,
   async execute(id, params, signal, onUpdate, _ctx) {
     const ssh = getSshConfig();
@@ -2239,14 +2239,14 @@ See [examples/extensions/truncated-tool.ts](../examples/extensions/truncated-too
 One extension can register multiple tools with shared state:
 
 ```typescript
-export default function (step: ExtensionAPI) {
+export default function (pi: ExtensionAPI) {
   let connection = null;
 
-  step.registerTool({ name: "db_connect", ... });
-  step.registerTool({ name: "db_query", ... });
-  step.registerTool({ name: "db_close", ... });
+  pi.registerTool({ name: "db_connect", ... });
+  pi.registerTool({ name: "db_query", ... });
+  pi.registerTool({ name: "db_close", ... });
 
-  step.on("session_shutdown", async () => {
+  pi.on("session_shutdown", async () => {
     connection?.close();
   });
 }
@@ -2261,7 +2261,7 @@ By default, tool output is wrapped in a `Box` that handles padding and backgroun
 Set `renderShell: "self"` when the tool should render its own shell instead of using the default `Box`. This is useful for tools that need complete control over framing or background behavior, for example large previews that must stay visually stable after the tool settles.
 
 ```typescript
-step.registerTool({
+pi.registerTool({
   name: "my_tool",
   label: "My Tool",
   description: "Custom shell example",
@@ -2379,19 +2379,19 @@ If a slot renderer is not defined or throws:
 
 ### Dynamic Tool Loading
 
-Extensions can register many tools while keeping only a small initial set active. A tool can then add more tools with `step.setActiveTools()` during execution. Step detects purely additive changes, records the newly available tool names on that tool result, and applies the updated active set before the next model request.
+Extensions can register many tools while keeping only a small initial set active. A tool can then add more tools with `pi.setActiveTools()` during execution. Step detects purely additive changes, records the newly available tool names on that tool result, and applies the updated active set before the next model request.
 
 This works with every model. Models with native deferred-loading support preserve the stable prompt prefix and load the new definitions at the tool-result position. Other models use the fallback described below.
 
 The lifecycle is:
 
-1. Register every tool with `step.registerTool()` so it appears in `step.getAllTools()`.
+1. Register every tool with `pi.registerTool()` so it appears in `pi.getAllTools()`.
 2. Keep loader tools, such as `search_tools`, active and leave searchable tools inactive.
-3. During loader execution, call `step.setActiveTools([...currentTools, ...matchingTools])`. The change must be additive: do not remove currently active tools in the same call.
+3. During loader execution, call `pi.setActiveTools([...currentTools, ...matchingTools])`. The change must be additive: do not remove currently active tools in the same call.
 4. Step records which tools were added on the loader's tool result.
 5. Before the next model response, Step exposes the added definitions using native deferred loading when supported, or the normal active tool list otherwise.
 
-You do not need to return provider-specific tool references or mark the loader as a special search tool. The active-tool change is the signal. Names passed to `step.setActiveTools()` must already be registered; unknown names are ignored.
+You do not need to return provider-specific tool references or mark the loader as a special search tool. The active-tool change is the signal. Names passed to `pi.setActiveTools()` must already be registered; unknown names are ignored.
 
 #### Models with native deferred loading
 
@@ -2422,8 +2422,8 @@ import { Type } from "typebox";
 
 const SEARCHABLE_TOOL_NAMES = new Set(["lookup_weather", "search_issues"]);
 
-export default function (step: ExtensionAPI) {
-  step.registerTool({
+export default function (pi: ExtensionAPI) {
+  pi.registerTool({
     name: "lookup_weather",
     label: "Lookup Weather",
     description: "Look up the current weather for a city",
@@ -2436,7 +2436,7 @@ export default function (step: ExtensionAPI) {
     },
   });
 
-  step.registerTool({
+  pi.registerTool({
     name: "search_issues",
     label: "Search Issues",
     description: "Search project issues by keyword",
@@ -2449,7 +2449,7 @@ export default function (step: ExtensionAPI) {
     },
   });
 
-  step.registerTool({
+  pi.registerTool({
     name: "search_tools",
     label: "Search Tools",
     description: "Search for and enable tools relevant to a task",
@@ -2463,7 +2463,7 @@ export default function (step: ExtensionAPI) {
     }),
     async execute(_toolCallId, params) {
       const terms = params.query.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
-      const matches = step.getAllTools()
+      const matches = pi.getAllTools()
         .filter((tool) => SEARCHABLE_TOOL_NAMES.has(tool.name))
         .map((tool) => ({
           tool,
@@ -2485,9 +2485,9 @@ export default function (step: ExtensionAPI) {
         };
       }
 
-      const active = step.getActiveTools();
+      const active = pi.getActiveTools();
       const added = matches.filter((name) => !active.includes(name));
-      step.setActiveTools([...new Set([...active, ...added])]);
+      pi.setActiveTools([...new Set([...active, ...added])]);
 
       return {
         content: [{
@@ -2501,13 +2501,13 @@ export default function (step: ExtensionAPI) {
     },
   });
 
-  step.on("session_start", () => {
+  pi.on("session_start", () => {
     // Keep searchable tools registered but initially inactive. Preserve built-ins
     // and tools owned by other extensions, and keep the loader itself active.
-    const initialTools = step.getActiveTools().filter(
+    const initialTools = pi.getActiveTools().filter(
       (name) => !SEARCHABLE_TOOL_NAMES.has(name),
     );
-    step.setActiveTools([...new Set([...initialTools, "search_tools"])]);
+    pi.setActiveTools([...new Set([...initialTools, "search_tools"])]);
   });
 }
 ```
@@ -2715,7 +2715,7 @@ Typical pattern:
 - delegate `applyCompletion(...)` unless you need custom insertion behavior
 
 ```typescript
-step.on("session_start", (_event, ctx) => {
+pi.on("session_start", (_event, ctx) => {
   ctx.ui.addAutocompleteProvider((current) => ({
     triggerCharacters: ["#"],
     async getSuggestions(lines, cursorLine, cursorCol, options) {
@@ -2837,8 +2837,8 @@ class VimEditor extends CustomEditor {
   }
 }
 
-export default function (step: ExtensionAPI) {
-  step.on("session_start", (_event, ctx) => {
+export default function (pi: ExtensionAPI) {
+  pi.on("session_start", (_event, ctx) => {
     ctx.ui.setEditorComponent((tui, theme, keybindings) =>
       new VimEditor(tui, theme, keybindings)
     );
@@ -2871,7 +2871,7 @@ Register a custom renderer for messages with your `customType`. Use message rend
 ```typescript
 import { Text } from "@step-harness/pi-tui";
 
-step.registerMessageRenderer("my-extension", (message, options, theme) => {
+pi.registerMessageRenderer("my-extension", (message, options, theme) => {
   const { expanded, outputPad } = options;
   let text = theme.fg("accent", `[${message.customType}] `);
   text += message.content;
@@ -2884,10 +2884,10 @@ step.registerMessageRenderer("my-extension", (message, options, theme) => {
 });
 ```
 
-Messages are sent via `step.sendMessage()`:
+Messages are sent via `pi.sendMessage()`:
 
 ```typescript
-step.sendMessage({
+pi.sendMessage({
   customType: "my-extension",  // Matches registerMessageRenderer
   content: "Status update",
   display: true,               // Show in TUI
@@ -2898,11 +2898,11 @@ step.sendMessage({
 For TUI-only content that should not be sent to the LLM, render custom entries instead:
 
 ```typescript
-step.registerEntryRenderer("my-card", (entry, options, theme) => {
+pi.registerEntryRenderer("my-card", (entry, options, theme) => {
   return new Text(theme.fg("accent", JSON.stringify(entry.data)));
 });
 
-step.appendEntry("my-card", { status: "done" });
+pi.appendEntry("my-card", { status: "done" });
 ```
 
 ### Theme Colors
@@ -3030,7 +3030,7 @@ All examples in [examples/extensions/](../examples/extensions/).
 | **Messages & Communication** |||
 | `message-renderer.ts` | Custom message rendering | `registerMessageRenderer`, `sendMessage` |
 | `entry-renderer.ts` | TUI-only custom entry rendering | `registerEntryRenderer`, `appendEntry` |
-| `event-bus.ts` | Inter-extension events | `step.events` |
+| `event-bus.ts` | Inter-extension events | `pi.events` |
 | **Session Metadata** |||
 | `session-name.ts` | Name sessions for selector | `setSessionName`, `getSessionName` |
 | `bookmark.ts` | Bookmark entries for /tree | `setLabel` |

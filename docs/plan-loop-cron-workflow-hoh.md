@@ -40,7 +40,7 @@ Step 目前擅长在一个 turn 内完成工作，也已经有 session、subagen
 扩展通过 `ExtensionAPI.sendMessage` 发送 custom message：
 
 ```ts
-step.sendMessage(
+pi.sendMessage(
   {
     customType: "step-wakeup" | "step-cron" | "step-workflow",
     content: [{ type: "text", text: "[wakeup] ..." }],
