@@ -12,7 +12,13 @@ StepCode runs in four modes: interactive, print or JSON, RPC for process integra
 
 ### Upstream lineage and naming
 
-This runtime is derived from the upstream pi coding agent. `pi` therefore still appears where it is a compatibility contract rather than product branding: the `pi` manifest key that the package loader reads from `package.json`, the `pi-package` discovery keyword on published packages, and the `~/.pi/agent/` / `.pi/` paths below, which apply when you invoke plain `pi`. The shipped product entrypoint is `step`, and under it the config and package root is `~/.stepcode/`.
+The shipped entrypoint is `step`, and its config and package root is `~/.stepcode/`. This runtime is derived from an upstream project whose CLI carried a different name, which survives in three identifiers that are compatibility contracts rather than branding, and that are therefore documented as-is below:
+
+- the `pi` manifest key the package loader reads from `package.json`
+- the `pi-package` npm keyword used for package discovery
+- the published `@step-harness/pi-tui` component package
+
+Telemetry span and attribute names keep the same legacy prefix; see [telemetry-schema.md](../agent-core/docs/telemetry-schema.md).
 
 ## Table of Contents
 
@@ -72,11 +78,11 @@ Then just talk to StepCode. By default, it gives the model four tools: `read`, `
 
 The shipped build authenticates against the **Step provider** by default. Log in with `/login` (or set `STEP_API_KEY`), then select a Step model via `/model` (or Ctrl+L). Press Ctrl+S in the model picker to save the highlighted model as the startup default.
 
-No other provider catalog is bundled. Add OpenAI- or Anthropic-compatible providers yourself via `~/.pi/agent/models.json`; configured catalogs refresh automatically, and `pi update --models` forces an immediate refresh. For custom APIs or OAuth, use extensions.
+No other provider catalog is bundled. Add OpenAI- or Anthropic-compatible providers yourself via `~/.stepcode/agent/models.json`; configured catalogs refresh automatically, and `step update --models` forces an immediate refresh. For custom APIs or OAuth, use extensions.
 
-Pi also supports the llama.cpp router server. Configure it with `/login llama.cpp`, manage downloads and loaded models with `/llama`, then select a loaded model with `/model`. See [docs/llama-cpp.md](docs/llama-cpp.md) for setup and usage.
+StepCode also supports the llama.cpp router server. Configure it with `/login llama.cpp`, manage downloads and loaded models with `/llama`, then select a loaded model with `/model`. See [docs/llama-cpp.md](docs/llama-cpp.md) for setup and usage.
 
-**Custom providers & models:** Add providers via `~/.pi/agent/models.json` if they speak a supported API (OpenAI or Anthropic). See [docs/models.md](docs/models.md) and [docs/custom-provider.md](docs/custom-provider.md), or [@step-harness/providers](../providers/README.md) for the underlying protocols.
+**Custom providers & models:** Add providers via `~/.stepcode/agent/models.json` if they speak a supported API (OpenAI or Anthropic). See [docs/models.md](docs/models.md) and [docs/custom-provider.md](docs/custom-provider.md), or [@step-harness/providers](../providers/README.md) for the underlying protocols.
 
 ---
 
@@ -133,11 +139,11 @@ Type `/` in the editor to trigger commands. [Extensions](#extensions) can regist
 | `/share` | Upload as private GitHub gist with shareable HTML link |
 | `/reload` | Reload keybindings, extensions, skills, prompts, themes, and context files |
 | `/hotkeys` | Show all keyboard shortcuts |
-| `/quit` | Quit pi |
+| `/quit` | Quit step |
 
 ### Keyboard Shortcuts
 
-See `/hotkeys` for the full list. Customize via `~/.pi/agent/keybindings.json`. See [docs/keybindings.md](docs/keybindings.md).
+See `/hotkeys` for the full list. Customize via `~/.stepcode/agent/keybindings.json`. See [docs/keybindings.md](docs/keybindings.md).
 
 **Commonly used:**
 
@@ -164,7 +170,7 @@ Submit messages while the agent is working:
 
 Follow-up delivery remains available to extensions, RPC clients, and custom `app.message.followUp` keybindings, but has no default shortcut.
 
-On Windows Terminal, `Alt+Enter` is fullscreen by default. Remap it in [docs/terminal-setup.md](docs/terminal-setup.md) so pi can receive the newline shortcut.
+On Windows Terminal, `Alt+Enter` is fullscreen by default. Remap it in [docs/terminal-setup.md](docs/terminal-setup.md) so step can receive the newline shortcut.
 
 Configure delivery in [settings](docs/settings.md): `steeringMode` and `followUpMode` can be `"one-at-a-time"` (default, waits for response) or `"all"` (delivers all queued at once). `transport` selects provider transport preference (`"sse"`, `"websocket"`, or `"auto"`) for providers that support multiple transports.
 
@@ -176,15 +182,15 @@ Sessions are stored as JSONL files with a tree structure. Each entry has an `id`
 
 ### Management
 
-Sessions auto-save to `~/.pi/agent/sessions/` organized by working directory.
+Sessions auto-save to `~/.stepcode/agent/sessions/` organized by working directory.
 
 ```bash
-pi -c                  # Continue most recent session
-pi -r                  # Browse and select from past sessions
-pi --no-session        # Ephemeral mode (don't save)
-pi --name "my task"    # Set session display name at startup
-pi --session <path|id> # Use specific session file or ID
-pi --fork <path|id>    # Fork specific session file or ID into a new session
+step -c                  # Continue most recent session
+step -r                  # Browse and select from past sessions
+step --no-session        # Ephemeral mode (don't save)
+step --name "my task"    # Set session display name at startup
+step --session <path|id> # Use specific session file or ID
+step --fork <path|id>    # Fork specific session file or ID into a new session
 ```
 
 Use `/session` in interactive mode to see the current session ID before reusing it with `--session <id>` or `--fork <id>`.
@@ -224,35 +230,35 @@ Use `/settings` to modify common options, or edit JSON files directly:
 
 | Location | Scope |
 |----------|-------|
-| `~/.pi/agent/settings.json` | Global (all projects) |
-| `.pi/settings.json` | Project (overrides global) |
+| `~/.stepcode/agent/settings.json` | Global (all projects) |
+| `.stepcode/settings.json` | Project (overrides global) |
 
 See [docs/settings.md](docs/settings.md) for all options.
 
 ### Project Trust
 
-On interactive startup, pi asks before trusting a project folder that contains project-local settings, resources, or project `.agents/skills` or `.claude/skills` and has no saved decision for the folder or a parent folder in `~/.pi/agent/trust.json`. Trusting a project allows pi to load `.pi/settings.json` and `.pi` resources, install missing project packages, and execute project extensions.
+On interactive startup, step asks before trusting a project folder that contains project-local settings, resources, or project `.agents/skills` or `.claude/skills` and has no saved decision for the folder or a parent folder in `~/.stepcode/agent/trust.json`. Trusting a project allows step to load `.stepcode/settings.json` and `.stepcode` resources, install missing project packages, and execute project extensions.
 
-Before the trust decision, pi loads only context files, user/global extensions, and CLI `-e` extensions so they can handle the `project_trust` event. Project-local extensions, project package-managed extensions, and project settings are loaded only after the project is trusted. This split also applies when switching to a session from a different cwd whose trust has not been resolved in the current process.
+Before the trust decision, step loads only context files, user/global extensions, and CLI `-e` extensions so they can handle the `project_trust` event. Project-local extensions, project package-managed extensions, and project settings are loaded only after the project is trusted. This split also applies when switching to a session from a different cwd whose trust has not been resolved in the current process.
 
 Non-interactive modes (`-p`, `--mode json`, and `--mode rpc`) do not show a trust prompt. Without an applicable saved trust decision, they use `defaultProjectTrust` from global settings: `ask` (default) and `never` ignore those project resources, while `always` trusts them. Pass `--approve`/`-a` or `--no-approve`/`-na` to override project trust for one run.
 
-If no extension or saved decision applies, `defaultProjectTrust` controls the fallback behavior. Set it to `"ask"`, `"always"`, or `"never"` in `~/.pi/agent/settings.json`, or change it with `/settings`.
+If no extension or saved decision applies, `defaultProjectTrust` controls the fallback behavior. Set it to `"ask"`, `"always"`, or `"never"` in `~/.stepcode/agent/settings.json`, or change it with `/settings`.
 
-`pi config` and package commands use the same project trust flow, except `pi update` never prompts. Pass `--approve` to trust project-local settings for one command or `--no-approve` to ignore them.
+`step config` and package commands use the same project trust flow, except `step update` never prompts. Pass `--approve` to trust project-local settings for one command or `--no-approve` to ignore them.
 
-Use `/trust` in interactive mode to save a project trust decision for future sessions, including trust for the immediate parent folder. It writes `~/.pi/agent/trust.json` only; the current session is not reloaded, so restart pi for changes to take effect.
+Use `/trust` in interactive mode to save a project trust decision for future sessions, including trust for the immediate parent folder. It writes `~/.stepcode/agent/trust.json` only; the current session is not reloaded, so restart step for changes to take effect.
 
 ---
 
 ## Context Files
 
-Pi loads `AGENTS.md` (or `CLAUDE.md`) at startup from:
-- `~/.pi/agent/AGENTS.md` (global)
+StepCode loads `AGENTS.md` (or `CLAUDE.md`) at startup from:
+- `~/.stepcode/agent/AGENTS.md` (global)
 - Parent directories (walking up from cwd)
 - Current directory
 
-If a directory contains `AGENTS.override.md`, Pi loads it instead of `AGENTS.md` or `CLAUDE.md` from that directory. Context files from other directories are still concatenated.
+If a directory contains `AGENTS.override.md`, StepCode loads it instead of `AGENTS.md` or `CLAUDE.md` from that directory. Context files from other directories are still concatenated.
 
 Use for project instructions (`AGENTS.md`/`CLAUDE.md`), conventions, common commands. All matching files are concatenated.
 
@@ -260,7 +266,7 @@ Disable context file loading with `--no-context-files` (or `-nc`).
 
 ### System Prompt
 
-Replace the default system prompt with `.pi/SYSTEM.md` (project) or `~/.pi/agent/SYSTEM.md` (global). Append without replacing via `APPEND_SYSTEM.md`.
+Replace the default system prompt with `.stepcode/SYSTEM.md` (project) or `~/.stepcode/agent/SYSTEM.md` (global). Append without replacing via `APPEND_SYSTEM.md`.
 
 ---
 
@@ -271,19 +277,19 @@ Replace the default system prompt with `.pi/SYSTEM.md` (project) or `~/.pi/agent
 Reusable prompts as Markdown files. Type `/name` to expand.
 
 ```markdown
-<!-- ~/.pi/agent/prompts/review.md -->
+<!-- ~/.stepcode/agent/prompts/review.md -->
 Review this code for bugs, security issues, and performance problems.
 Focus on: {{focus}}
 ```
 
-Place in `~/.pi/agent/prompts/`, `.pi/prompts/`, or a [package](#packages) to share with others. See [docs/prompt-templates.md](docs/prompt-templates.md).
+Place in `~/.stepcode/agent/prompts/`, `.stepcode/prompts/`, or a [package](#packages) to share with others. See [docs/prompt-templates.md](docs/prompt-templates.md).
 
 ### Skills
 
 On-demand capability packages following the [Agent Skills standard](https://agentskills.io). Invoke via `/skill:name` or let the agent load them automatically.
 
 ```markdown
-<!-- ~/.pi/agent/skills/my-skill/SKILL.md -->
+<!-- ~/.stepcode/agent/skills/my-skill/SKILL.md -->
 # My Skill
 Use this skill when the user asks about X.
 
@@ -292,23 +298,23 @@ Use this skill when the user asks about X.
 2. Then that
 ```
 
-Place in `~/.pi/agent/skills/`, `~/.pi/skills/`, `~/.agents/skills/`, `~/.claude/skills/`, `.pi/skills/`, `.agents/skills/`, or `.claude/skills/` (the last two from `cwd` up through parent directories) or a [package](#packages) to share with others. See [docs/skills.md](docs/skills.md).
+Place in `~/.stepcode/agent/skills/`, `~/.stepcode/skills/`, `~/.agents/skills/`, `~/.claude/skills/`, `.stepcode/skills/`, `.agents/skills/`, or `.claude/skills/` (the last two from `cwd` up through parent directories) or a [package](#packages) to share with others. See [docs/skills.md](docs/skills.md).
 
 ### Extensions
 
 <p align="center"><img src="docs/images/doom-extension.png" alt="Doom Extension" width="600"></p>
 
-TypeScript modules that extend pi with custom tools, commands, keyboard shortcuts, event handlers, and UI components.
+TypeScript modules that extend step with custom tools, commands, keyboard shortcuts, event handlers, and UI components.
 
 ```typescript
-export default function (pi: ExtensionAPI) {
-  pi.registerTool({ name: "deploy", ... });
-  pi.registerCommand("stats", { ... });
-  pi.on("tool_call", async (event, ctx) => { ... });
+export default function (step: ExtensionAPI) {
+  step.registerTool({ name: "deploy", ... });
+  step.registerCommand("stats", { ... });
+  step.on("tool_call", async (event, ctx) => { ... });
 }
 ```
 
-The default export can also be `async`. pi waits for async extension factories before startup continues, which is useful for one-time initialization such as fetching remote model lists before calling `pi.registerProvider()`.
+The default export can also be `async`. step waits for async extension factories before startup continues, which is useful for one-time initialization such as fetching remote model lists before calling `step.registerProvider()`.
 
 **What's possible:**
 - Custom tools (or replace built-in tools entirely)
@@ -320,24 +326,23 @@ The default export can also be `async`. pi waits for async extension factories b
 - Git checkpointing and auto-commit
 - SSH and sandbox execution
 - MCP server integration
-- Make pi look like Claude Code
+- Make step look like Claude Code
 - Games while waiting (yes, Doom runs)
 - ...anything you can dream up
 
-Place in `~/.pi/agent/extensions/`, `.pi/extensions/`, or a [package](#packages) to share with others. See [docs/extensions.md](docs/extensions.md) and [examples/extensions/](examples/extensions/).
+Place in `~/.stepcode/agent/extensions/`, `.stepcode/extensions/`, or a [package](#packages) to share with others. See [docs/extensions.md](docs/extensions.md) and [examples/extensions/](examples/extensions/).
 
 ### Themes
 
-Built-in: `dark`, `light`, `sage`, `step-blue`, `step-violet`, `step-violet-light`. Themes hot-reload: modify the active theme file and pi immediately applies changes.
+Built-in: `dark`, `light`, `sage`, `step-blue`, `step-violet`, `step-violet-light`. Themes hot-reload: modify the active theme file and step immediately applies changes.
 
-Place in `~/.pi/agent/themes/`, `.pi/themes/`, or a [package](#packages) to share with others. See [docs/themes.md](docs/themes.md).
+Place in `~/.stepcode/agent/themes/`, `.stepcode/themes/`, or a [package](#packages) to share with others. See [docs/themes.md](docs/themes.md).
 
 ### Step entrypoint
 
-The `step` binary is a thin product entrypoint over the same pi coding-agent
-runtime and native TUI. It selects the `step` provider and model by default,
-uses the built-in `step-blue` theme (one blue palette, no light/dark variants), and stores sessions
-under `~/.stepcode/`.
+The `step` binary selects the `step` provider and model by default, uses the
+built-in `step-blue` theme (one blue palette, no light/dark variants), and
+stores sessions under `~/.stepcode/`.
 
 ```bash
 STEP_API_KEY=... step
@@ -346,7 +351,7 @@ step --help
 
 Step-specific behavior is registered as an extension (`/init`, provider login,
 and branding). The editor, input protocol, selectors, overlays, queueing, and
-agent lifecycle remain pi-owned.
+agent lifecycle are owned by the shared runtime.
 
 ### Packages
 
@@ -355,8 +360,8 @@ Bundle and share extensions, skills, prompts, and themes via npm or git. Find pa
 > **Security:** StepCode packages run with full system access. Extensions execute arbitrary code, and skills can instruct the model to perform any action including running executables. Review source code before installing third-party packages.
 
 ```bash
-step install npm:@foo/pi-tools
-step install npm:@foo/pi-tools@1.2.3      # pinned version
+step install npm:@foo/step-tools
+step install npm:@foo/step-tools@1.2.3      # pinned version
 step install git:github.com/user/repo
 step install git:github.com/user/repo@v1  # tag or commit
 step install git:git@github.com:user/repo
@@ -365,8 +370,8 @@ step install https://github.com/user/repo
 step install https://github.com/user/repo@v1      # tag or commit
 step install ssh://git@github.com/user/repo
 step install ssh://git@github.com/user/repo@v1    # tag or commit
-step remove npm:@foo/pi-tools
-step uninstall npm:@foo/pi-tools        # alias for remove
+step remove npm:@foo/step-tools
+step uninstall npm:@foo/step-tools        # alias for remove
 step list
 step update                             # update StepCode only
 step update --all                       # update StepCode and packages
@@ -374,17 +379,17 @@ step update --extensions                # update packages only
 step update --models                    # refresh model catalogs only
 step update --self                      # update StepCode only
 step update --self --force              # reinstall StepCode even if current
-step update npm:@foo/pi-tools           # update one package
+step update npm:@foo/step-tools           # update one package
 step config                             # enable/disable extensions, skills, prompts, themes
 ```
 
-Packages install to `~/.stepcode/agent/git/` (git) or `~/.stepcode/agent/npm/` (npm); plain `pi` invocations use `~/.pi/agent/`. Use `-l` for project-local installs (`.stepcode/git/`, `.stepcode/npm/`). Git `@ref` values are pinned tags or commits; pinned packages are skipped by `step update --extensions` and `step update --all`, so use `step install git:host/user/repo@new-ref` to move an existing package to a new ref. Git packages install dependencies with `npm install --omit=dev` by default, so runtime deps must be listed under `dependencies`; when `npmCommand` is configured, git packages use plain `install` for compatibility with wrappers. If you use a Node version manager and want package installs to reuse a stable npm context, set `npmCommand` in `settings.json`, for example `["mise", "exec", "node@20", "--", "npm"]`.
+Packages install to `~/.stepcode/agent/git/` (git) or `~/.stepcode/agent/npm/` (npm). Use `-l` for project-local installs (`.stepcode/git/`, `.stepcode/npm/`). Git `@ref` values are pinned tags or commits; pinned packages are skipped by `step update --extensions` and `step update --all`, so use `step install git:host/user/repo@new-ref` to move an existing package to a new ref. Git packages install dependencies with `npm install --omit=dev` by default, so runtime deps must be listed under `dependencies`; when `npmCommand` is configured, git packages use plain `install` for compatibility with wrappers. If you use a Node version manager and want package installs to reuse a stable npm context, set `npmCommand` in `settings.json`, for example `["mise", "exec", "node@20", "--", "npm"]`.
 
 Create a package by adding a `pi` manifest key to `package.json`. The key keeps its upstream name so already-published packages stay discoverable:
 
 ```json
 {
-  "name": "my-pi-package",
+  "name": "my-step-package",
   "keywords": ["pi-package"],
   "pi": {
     "extensions": ["./extensions"],
@@ -426,7 +431,7 @@ See [docs/sdk.md](docs/sdk.md) and [examples/sdk/](examples/sdk/).
 For non-Node.js integrations, use RPC mode over stdin/stdout:
 
 ```bash
-pi --mode rpc
+step --mode rpc
 ```
 
 RPC mode uses strict LF-delimited JSONL framing. Clients must split records on `\n` only. Do not use generic line readers like Node `readline`, which also split on Unicode separators inside JSON payloads.
@@ -451,7 +456,8 @@ StepCode is aggressively extensible so it doesn't have to dictate your workflow.
 
 **No background bash.** Use tmux. Full observability, direct interaction.
 
-This design follows the rationale of the upstream pi coding agent.
+This design is deliberate: the runtime stays small, and anything opinionated is
+something you add.
 
 ---
 
@@ -490,10 +496,10 @@ step config                    # Enable/disable package resources
 | `--mode rpc` | RPC mode for process integration (see [docs/rpc.md](docs/rpc.md)) |
 | `--export <in> [out]` | Export session to HTML |
 
-In print mode, pi also reads piped stdin and merges it into the initial prompt:
+In print mode, step also reads piped stdin and merges it into the initial prompt:
 
 ```bash
-cat README.md | pi -p "Summarize this text"
+cat README.md | step -p "Summarize this text"
 ```
 
 ### Model Options
@@ -566,49 +572,49 @@ Combine `--no-*` with explicit flags to load exactly what you need, ignoring set
 Prefix files with `@` to include in the message:
 
 ```bash
-pi @prompt.md "Answer this"
-pi -p @screenshot.png "What's in this image?"
-pi @code.ts @test.ts "Review these files"
+step @prompt.md "Answer this"
+step -p @screenshot.png "What's in this image?"
+step @code.ts @test.ts "Review these files"
 ```
 
 ### Examples
 
 ```bash
 # Interactive with initial prompt
-pi "List all .ts files in src/"
+step "List all .ts files in src/"
 
 # Non-interactive
-pi -p "Summarize this codebase"
+step -p "Summarize this codebase"
 
 # Prompt beginning with a dash
-pi -p -- "- Summarize these points"
+step -p -- "- Summarize these points"
 
 # Non-interactive with piped stdin
-cat README.md | pi -p "Summarize this text"
+cat README.md | step -p "Summarize this text"
 
 # Named one-shot session
-pi --name "release audit" -p "Audit this repository"
+step --name "release audit" -p "Audit this repository"
 
 # Different model
-pi --provider openai --model gpt-4o "Help me refactor"
+step --provider openai --model gpt-4o "Help me refactor"
 
 # Model with provider prefix (no --provider needed)
-pi --model openai/gpt-4o "Help me refactor"
+step --model openai/gpt-4o "Help me refactor"
 
 # Model with thinking level shorthand
-pi --model sonnet:high "Solve this complex problem"
+step --model sonnet:high "Solve this complex problem"
 
 # Limit model cycling
-pi --models "claude-*,gpt-4o"
+step --models "claude-*,gpt-4o"
 
 # Read-only mode
-pi --tools read,grep,find,ls -p "Review the code"
+step --tools read,grep,find,ls -p "Review the code"
 
 # Disable one extension or built-in tool while keeping the rest available
-pi --exclude-tools ask_question
+step --exclude-tools ask_question
 
 # High thinking level
-pi --thinking high "Solve this complex problem"
+step --thinking high "Solve this complex problem"
 ```
 
 ### Environment Variables
