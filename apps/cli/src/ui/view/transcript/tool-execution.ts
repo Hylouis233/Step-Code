@@ -33,6 +33,8 @@ import type { StepToolSpinnerState } from "./step-spinner.ts";
 const FALLBACK_PREVIEW_LINES = 10;
 const STEP_COLLAPSED_LINES = 5;
 const STEP_COLLAPSED_DIFF_LINES = 8;
+/** Maximum command characters shown in a `run_command(...)` Step title. */
+const STEP_COMMAND_PREVIEW_CHARS = 50;
 
 /** The legacy Step names whose visible headers differ from Pi's native names. */
 const STEP_TOOL_NAMES = new Set([
@@ -223,6 +225,22 @@ function readNumberDetail(details: unknown, ...keys: string[]): number | undefin
 }
 
 /**
+ * One-line command preview for the Step title. Inline scripts and heredocs
+ * would otherwise fill the transcript with the command itself; line breaks
+ * (with their indentation) fold to one space and the text is cut to the first
+ * STEP_COMMAND_PREVIEW_CHARS code points.
+ */
+function formatStepCommandPreview(command: string): string {
+	const singleLine = command
+		.replace(/\s*[\r\n]+\s*/gu, " ")
+		.replace(/\t/gu, " ")
+		.trim();
+	const chars = Array.from(singleLine);
+	if (chars.length <= STEP_COMMAND_PREVIEW_CHARS) return singleLine;
+	return `${chars.slice(0, STEP_COMMAND_PREVIEW_CHARS).join("")}…`;
+}
+
+/**
  * Build the old Step-shaped call title while leaving Pi's renderer in charge
  * of the actual call/result body. Pi's shell renderers intentionally use their
  * own labels (`$ command`, `edit path`, ...); the Step model-facing contract
@@ -241,7 +259,7 @@ function formatStepCallTitle(toolName: string, args: unknown, cwd: string): stri
 
 	switch (toolName) {
 		case "run_command":
-			argument = command;
+			argument = command === undefined ? undefined : formatStepCommandPreview(command);
 			break;
 		case "find_files":
 			argument = pattern;
@@ -724,11 +742,22 @@ export class ToolExecutionComponent extends Container {
 		}
 
 		if (callLines.length === 0) callLines = [theme.fg("toolTitle", theme.bold(this.toolName))];
-		// Some native call renderers (notably `write`) include a preview below
-		// their header. Treat those rows as payload so the Step connector remains
-		// stable and the preview participates in the same collapse budget as a
-		// result renderer's output.
-		if (callLines.length > 1) {
+		if (this.toolName === "run_command") {
+			// The native shell call rows only echo the command that the Step title
+			// already previews. Show that echo on expand, and only when the preview
+			// had to shorten or reflow the command; it is rendered at body width so
+			// the connector does not clip it.
+			const command = readStringArg(this.args, "command");
+			const showCommand = this.expanded && command !== undefined && formatStepCommandPreview(command) !== command;
+			const commandRows =
+				showCommand && this.stepCallComponent ? trimRenderedRows(this.stepCallComponent.render(bodyWidth)) : [];
+			resultLines = [...commandRows, ...resultLines];
+			callLines = [callLines[0]!];
+		} else if (callLines.length > 1) {
+			// Some native call renderers (notably `write`) include a preview below
+			// their header. Treat those rows as payload so the Step connector remains
+			// stable and the preview participates in the same collapse budget as a
+			// result renderer's output.
 			resultLines = [...callLines.slice(1), ...resultLines];
 			callLines = [callLines[0]!];
 		}

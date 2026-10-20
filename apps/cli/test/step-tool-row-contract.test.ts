@@ -68,6 +68,45 @@ describe("Step projected rows", () => {
 		expect(args.command).toBe(command);
 	});
 
+	it("previews long run_command scripts in the title and shows the full command only on expand", () => {
+		const script = [
+			'playwriter -e "',
+			"  if (!state.r24) {",
+			"    state.page = context.pages().find((p) => p.url().includes('grafana'));",
+			"    const marker = 'FULL_COMMAND_TAIL';",
+			"  }",
+			'" -s 3 2>&1 | tail -12',
+		].join("\n");
+		const { component } = createHarness("run_command", { command: script, timeout: 120 });
+		component.setArgsComplete();
+		component.markExecutionStarted();
+		component.updateResult({ content: [{ type: "text", text: "RESULT_ROW" }], isError: false }, false);
+
+		const collapsed = expectPhysicalRows(component, 200).filter((row) => row.length > 0);
+		const preview = Array.from(script.replace(/\s*[\r\n]+\s*/gu, " "))
+			.slice(0, 50)
+			.join("");
+		expect(collapsed[0]).toBe(`● run_command(${preview}…)`);
+		expect(collapsed.join("\n")).not.toContain("FULL_COMMAND_TAIL");
+		expect(collapsed.join("\n")).not.toContain("timeout 120s");
+		expect(collapsed[1]).toBe("  └ RESULT_ROW");
+
+		component.setExpanded(true);
+		const expanded = expectPhysicalRows(component, 200).join("\n");
+		expect(expanded).toContain("FULL_COMMAND_TAIL");
+		expect(expanded).toContain('$ playwriter -e "');
+		expect(expanded).toContain("RESULT_ROW");
+	});
+
+	it("keeps short single-line run_command titles verbatim without an echo row", () => {
+		const { component } = createHarness("run_command", { command: "pnpm test" });
+		component.updateResult({ content: [{ type: "text", text: "ok" }], isError: false }, false);
+		component.setExpanded(true);
+		const rows = expectPhysicalRows(component, 80).filter((row) => row.length > 0);
+		expect(rows[0]).toBe("● run_command(pnpm test)");
+		expect(rows.join("\n")).not.toContain("$ pnpm test");
+	});
+
 	it.each([
 		["list_directory", { path: "src/one\ntwo\tdir" }],
 		["read_file", { path: "src/one\rtwo.txt", start_line: 1, end_line: 2 }],
