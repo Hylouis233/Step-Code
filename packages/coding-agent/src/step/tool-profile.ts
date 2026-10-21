@@ -597,17 +597,38 @@ function nativeDetails(result: AnyResult): Record<string, unknown> {
 	return result.details && typeof result.details === "object" ? (result.details as Record<string, unknown>) : {};
 }
 
+/**
+ * Read the structured match list the find tool reports in `details.files`.
+ * Returns `[]` when the search genuinely matched nothing, and `undefined` when
+ * the backend did not report paths at all (custom/remote find operations), so
+ * the caller knows whether to trust an empty result or fall back to text.
+ */
+function findFilesFromDetails(result: AnyResult): string[] | undefined {
+	const files = nativeDetails(result).files;
+	if (!Array.isArray(files)) return undefined;
+	const paths: string[] = [];
+	for (const entry of files) {
+		if (typeof entry !== "string") return undefined;
+		const display = entry.trim();
+		if (display.length > 0) paths.push(display);
+	}
+	return paths;
+}
+
+/**
+ * Fallback for backends that do not report `details.files` (custom/remote find
+ * operations). Native find appends its notices as one bracketed block after a
+ * blank line, so strip that block by shape instead of dropping every line that
+ * starts with "[" — bracket-prefixed paths such as `[id]/page.tsx` are valid
+ * matches, and a narrowed search returns them relative to the search root, so
+ * they arrive with the bracket in the first position.
+ */
 function stripNativeFindNotices(text: string): string[] {
-	return text
+	const withoutNotice = text.replace(/\n\n\[[^\n]*\]$/u, "");
+	return withoutNotice
 		.split("\n")
 		.map((line) => line.trim())
-		.filter(
-			(line) =>
-				line.length > 0 &&
-				line !== "No files found matching pattern" &&
-				!line.startsWith("[") &&
-				!line.startsWith("WARNING:"),
-		);
+		.filter((line) => line.length > 0 && line !== "No files found matching pattern");
 }
 
 function resolveNativePath(display: string, searchRoot: string): string {
@@ -663,7 +684,10 @@ async function executeFindFiles(
 	}
 
 	const result = execution.result;
-	const rawPaths = stripNativeFindNotices(textFromResult(result));
+	// Prefer the paths the find tool already resolved; only backends that report
+	// no structured list need the rendered text parsed.
+	const structuredPaths = findFilesFromDetails(result);
+	const rawPaths = structuredPaths ?? stripNativeFindNotices(textFromResult(result));
 	const searchRoot = resolveToCwd(nativeArgs.path ?? ".", effectiveCwd);
 	const ranked = await Promise.all(
 		rawPaths.map(async (display) => {

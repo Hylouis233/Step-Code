@@ -293,6 +293,59 @@ describe("Step tool profile", () => {
 		}
 	});
 
+	it("keeps bracket-prefixed paths in find_files when the search is narrowed", async () => {
+		// A narrowed search returns paths relative to the search root, so a route
+		// directory such as "[id]" lands in the first position of the line — the
+		// same position a native notice block uses.
+		const root = await mkdtemp(join(tmpdir(), "step-tool-profile-"));
+		try {
+			for (const route of ["[id]", "[...slug]", "[[...slug]]", "static"]) {
+				await mkdir(join(root, "routes", route), { recursive: true });
+				await writeFile(join(root, "routes", route, "page.tsx"), "export default 1;\n");
+			}
+			const find = createStepToolProfile(root).find((tool) => tool.name === "find_files")!;
+			const result = await find.execute(
+				"find",
+				{ pattern: "*.tsx", path: "routes", max_results: 10 },
+				undefined,
+				undefined,
+				undefined as never,
+			);
+			expect(text(result).split("\n").sort()).toEqual([
+				"[...slug]/page.tsx",
+				"[[...slug]]/page.tsx",
+				"[id]/page.tsx",
+				"static/page.tsx",
+			]);
+			expect(result.details).toMatchObject({ matchedFiles: 4, returnedFiles: 4 });
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
+	it("keeps paths that start with a notice keyword in find_files", async () => {
+		// "WARNING:" is only usable in a filename off Windows; the stripping this
+		// guards against was prefix-based, so the case is platform-bound.
+		if (process.platform === "win32") return;
+		const root = await mkdtemp(join(tmpdir(), "step-tool-profile-"));
+		try {
+			await writeFile(join(root, "WARNING: read me.ts"), "export default 1;\n");
+			await writeFile(join(root, "plain.ts"), "export default 1;\n");
+			const find = createStepToolProfile(root).find((tool) => tool.name === "find_files")!;
+			const result = await find.execute(
+				"find",
+				{ pattern: "*.ts", max_results: 10 },
+				undefined,
+				undefined,
+				undefined as never,
+			);
+			expect(text(result).split("\n").sort()).toEqual(["WARNING: read me.ts", "plain.ts"]);
+			expect(result.details).toMatchObject({ matchedFiles: 2, returnedFiles: 2 });
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
 	it("maps search_files context into native grep output", async () => {
 		const root = await mkdtemp(join(tmpdir(), "step-tool-profile-"));
 		try {
