@@ -729,12 +729,41 @@ async function executeFindFiles(
 
 type SearchRow = { display: string; line: number; text: string };
 
+/**
+ * Read the structured match rows the grep tool reports in `details.matchRows`.
+ * Returns undefined when the backend did not provide them (custom/remote search
+ * operations), so the caller can fall back to parsing the rendered text.
+ */
+function searchRowsFromDetails(result: AnyResult): SearchRow[] | undefined {
+	const details = result.details;
+	if (!details || typeof details !== "object") return undefined;
+	const matches = (details as { matchRows?: unknown }).matchRows;
+	if (!Array.isArray(matches) || matches.length === 0) return undefined;
+	const rows: SearchRow[] = [];
+	for (const entry of matches) {
+		if (!entry || typeof entry !== "object") return undefined;
+		const { path: display, line, text } = entry as { path?: unknown; line?: unknown; text?: unknown };
+		if (typeof display !== "string" || typeof line !== "number" || !Number.isFinite(line)) return undefined;
+		rows.push({ display, line, text: typeof text === "string" ? text : "" });
+	}
+	return rows;
+}
+
+/**
+ * Fallback for backends that do not report structured rows (custom/remote
+ * search operations). The native grep tool supplies `details.matches`, so this
+ * only runs when those are absent; the lazy path group is the best that can be
+ * done from rendered text, which is exactly why the structured form is primary.
+ */
 function parseNativeSearchRows(text: string): SearchRow[] {
 	const rows: SearchRow[] = [];
 	for (const rawLine of text.split("\n")) {
 		const line = rawLine.trimEnd();
 		// Match the row shape, not a prefix: "[" and "WARNING:" can start valid paths.
-		const match = /^(.*):(\d+): (.*)$/u.exec(line);
+		// The path group must stay lazy: matched text can itself contain ":<digits>:"
+		// shapes (compiler errors, timestamps), and a greedy path would swallow up to
+		// the last one, mis-reading the line number and reloading the wrong line.
+		const match = /^(.*?):(\d+): (.*)$/u.exec(line);
 		if (match) {
 			rows.push({ display: match[1] ?? "", line: Number(match[2]), text: match[3] ?? "" });
 		}
@@ -841,7 +870,10 @@ async function executeSearchFiles(
 	}
 
 	const result = execution.result;
-	const rows = parseNativeSearchRows(textFromResult(result));
+	// Prefer the structured rows the grep tool already resolved. Falling back to
+	// re-parsing the rendered text is what silently mis-reads rows whose path or
+	// matched text itself contains a ":<digits>:" shape.
+	const rows = searchRowsFromDetails(result) ?? parseNativeSearchRows(textFromResult(result));
 	const searchRoot = resolveToCwd(args.path ?? ".", effectiveCwd);
 	let searchRootIsFile = false;
 	try {
@@ -871,7 +903,11 @@ async function executeSearchFiles(
 		content: [{ type: "text", text: limited.text }],
 		details: {
 			...details,
+			// `matches` stays the rendered match count (pre-existing contract);
+			// `matchRows` carries the structured rows the grep tool resolved, in the
+			// same shape so consumers have one format to read.
 			matches: rendered.matches,
+			matchRows: rows.map((row) => ({ path: row.display, line: row.line, text: row.text })),
 			filesMatched: rendered.filesMatched,
 			truncated: nativeCapped || limited.truncated,
 			timedOut: false,
