@@ -33,8 +33,6 @@ import type { StepToolSpinnerState } from "./step-spinner.ts";
 const FALLBACK_PREVIEW_LINES = 10;
 const STEP_COLLAPSED_LINES = 5;
 const STEP_COLLAPSED_DIFF_LINES = 8;
-/** Maximum command characters shown in a `run_command(...)` Step title. */
-const STEP_COMMAND_PREVIEW_CHARS = 50;
 
 /** The legacy Step names whose visible headers differ from Pi's native names. */
 const STEP_TOOL_NAMES = new Set([
@@ -224,20 +222,12 @@ function readNumberDetail(details: unknown, ...keys: string[]): number | undefin
 	return readNumberArg(details, ...keys);
 }
 
-/**
- * One-line command preview for the Step title. Inline scripts and heredocs
- * would otherwise fill the transcript with the command itself; line breaks
- * (with their indentation) fold to one space and the text is cut to the first
- * STEP_COMMAND_PREVIEW_CHARS code points.
- */
-function formatStepCommandPreview(command: string): string {
-	const singleLine = command
-		.replace(/\s*[\r\n]+\s*/gu, " ")
-		.replace(/\t/gu, " ")
-		.trim();
-	const chars = Array.from(singleLine);
-	if (chars.length <= STEP_COMMAND_PREVIEW_CHARS) return singleLine;
-	return `${chars.slice(0, STEP_COMMAND_PREVIEW_CHARS).join("")}…`;
+/** Keep command details out of the compact title; expanded rows retain the original command. */
+function formatStepCommandPreview(command: string, width: number): string {
+	const lines = command.split(/\r\n|[\r\n]/u);
+	const firstLine = replaceTabs(lines[0] ?? "");
+	const preview = lines.length > 1 ? `${firstLine} …` : firstLine;
+	return truncateToWidth(preview, Math.max(0, width), "…", false);
 }
 
 /**
@@ -246,7 +236,7 @@ function formatStepCommandPreview(command: string): string {
  * own labels (`$ command`, `edit path`, ...); the Step model-facing contract
  * uses the names below, so changing the title here is presentation-only.
  */
-function formatStepCallTitle(toolName: string, args: unknown, cwd: string): string | undefined {
+function formatStepCallTitle(toolName: string, args: unknown, cwd: string, width: number): string | undefined {
 	if (!STEP_TOOL_NAMES.has(toolName)) return undefined;
 
 	const title = theme.fg("toolTitle", theme.bold(toolName));
@@ -259,7 +249,8 @@ function formatStepCallTitle(toolName: string, args: unknown, cwd: string): stri
 
 	switch (toolName) {
 		case "run_command":
-			argument = command === undefined ? undefined : formatStepCommandPreview(command);
+			argument =
+				command === undefined ? undefined : formatStepCommandPreview(command, width - visibleWidth(title) - 2);
 			break;
 		case "find_files":
 			argument = pattern;
@@ -743,14 +734,10 @@ export class ToolExecutionComponent extends Container {
 
 		if (callLines.length === 0) callLines = [theme.fg("toolTitle", theme.bold(this.toolName))];
 		if (this.toolName === "run_command") {
-			// The native shell call rows only echo the command that the Step title
-			// already previews. Show that echo on expand, and only when the preview
-			// had to shorten or reflow the command; it is rendered at body width so
-			// the connector does not clip it.
-			const command = readStringArg(this.args, "command");
-			const showCommand = this.expanded && command !== undefined && formatStepCommandPreview(command) !== command;
+			// Render the full command at body width only on expansion, separately
+			// from its compact header so native command rows never leak into output.
 			const commandRows =
-				showCommand && this.stepCallComponent ? trimRenderedRows(this.stepCallComponent.render(bodyWidth)) : [];
+				this.expanded && this.stepCallComponent ? trimRenderedRows(this.stepCallComponent.render(bodyWidth)) : [];
 			resultLines = [...commandRows, ...resultLines];
 			callLines = [callLines[0]!];
 		} else if (callLines.length > 1) {
@@ -761,7 +748,12 @@ export class ToolExecutionComponent extends Container {
 			resultLines = [...callLines.slice(1), ...resultLines];
 			callLines = [callLines[0]!];
 		}
-		const stepTitle = formatStepCallTitle(this.toolName, this.args, this.cwd);
+		const stepTitle = formatStepCallTitle(
+			this.toolName,
+			this.args,
+			this.cwd,
+			safeWidth - 2 - visibleWidth(this.stepElapsedSuffix()),
+		);
 		if (stepTitle !== undefined) {
 			// Keep the native renderer's body/state, but use the exact Step tool
 			// contract in the visible invocation row.
@@ -823,7 +815,12 @@ export class ToolExecutionComponent extends Container {
 		if (this.toolName === "edit" || this.toolName === "edit_file") {
 			lines = lines.map((line) => stripToolShellBackground(removeLeadingVisibleSpaces(line, 1)));
 		}
-		const stepTitle = formatStepCallTitle(this.toolName, this.args, this.cwd);
+		const stepTitle = formatStepCallTitle(
+			this.toolName,
+			this.args,
+			this.cwd,
+			safeWidth - 2 - visibleWidth(this.stepElapsedSuffix()),
+		);
 		if (stepTitle !== undefined && lines.length > 0) {
 			lines[0] = stepTitle;
 		}
