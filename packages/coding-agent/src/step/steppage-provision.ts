@@ -1,6 +1,7 @@
 import { execFile, spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join, win32 } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 import lockfile from "proper-lockfile";
@@ -25,17 +26,44 @@ export function stepPageInstallerUrl(env: NodeJS.ProcessEnv = process.env): stri
  * installer URL so a channel or mirror override covers both artifacts.
  */
 export function stepPageBundleUrl(env: NodeJS.ProcessEnv = process.env): string {
-	return `${stepPageInstallerUrl(env).replace(/\/[^/]*$/u, "")}/latest/steppage-mcp.mjs`;
+	const url = new URL(stepPageInstallerUrl(env));
+	url.pathname = `${url.pathname.replace(/\/[^/]*$/u, "")}/latest/steppage-mcp.mjs`;
+	return url.href;
 }
 
 /**
  * Probe order for an existing executable: PATH first, then the managed install.
  * Windows probes the `.cmd` wrapper because the bundle is a bare ESM file.
+ *
+ * On Windows, `cmd` searches the current directory before PATH, so a bare name
+ * could execute a project-controlled `steppage-mcp.cmd`. Windows candidates are
+ * therefore resolved to absolute files from absolute PATH entries only.
  */
-export function stepPageCommandCandidates(platform: NodeJS.Platform, homeDir: string): string[] {
+export function stepPageCommandCandidates(
+	platform: NodeJS.Platform,
+	homeDir: string,
+	pathValue?: string,
+	fileExists: (path: string) => boolean = existsSync,
+): string[] {
 	const managed = join(homeDir, ".local", "bin", "steppage-mcp");
-	if (platform === "win32") return ["steppage-mcp", "steppage-mcp.cmd", `${managed}.cmd`];
-	return ["steppage-mcp", managed];
+	if (platform !== "win32") return ["steppage-mcp", managed];
+	const candidates: string[] = [];
+	for (const rawEntry of (pathValue ?? "").split(";")) {
+		const entry = rawEntry.trim().replace(/^"(.*)"$/u, "$1");
+		// Relative entries (including ".") resolve against the working directory.
+		if (!entry || !(win32.isAbsolute(entry) || isAbsolute(entry))) continue;
+		for (const extension of [".cmd", ".exe", ".bat"]) {
+			const candidate = join(entry, `steppage-mcp${extension}`);
+			if (!candidates.includes(candidate) && fileExists(candidate)) candidates.push(candidate);
+		}
+	}
+	if (!candidates.includes(`${managed}.cmd`)) candidates.push(`${managed}.cmd`);
+	return candidates;
+}
+
+function pathValueOf(env: NodeJS.ProcessEnv): string | undefined {
+	const key = Object.keys(env).find((name) => name.toUpperCase() === "PATH");
+	return key ? env[key] : undefined;
 }
 
 /** The Windows wrapper installed next to the bundle; a bare ESM file must run via node. */
@@ -99,7 +127,7 @@ async function runInstaller(script: string, env: NodeJS.ProcessEnv, signal: Abor
 	});
 }
 
-/** `cmd /c` resolves both bare PATHEXT lookups and explicit `.cmd` files on every Node runtime. */
+/** On Windows every candidate is an absolute file; `cmd /c` runs `.cmd` wrappers on every Node runtime. */
 async function probeStepPageVersion(
 	command: string,
 	env: NodeJS.ProcessEnv,
@@ -126,7 +154,7 @@ async function findHealthyStepPage(
 	signal?: AbortSignal,
 	platform: NodeJS.Platform = process.platform,
 ): Promise<string | undefined> {
-	for (const command of stepPageCommandCandidates(platform, resolveStepHomeDir(env))) {
+	for (const command of stepPageCommandCandidates(platform, resolveStepHomeDir(env), pathValueOf(env))) {
 		signal?.throwIfAborted();
 		if (await probeStepPageVersion(command, env, signal, platform)) return command;
 	}
