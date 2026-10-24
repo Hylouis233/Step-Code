@@ -226,7 +226,11 @@ markers do not suppress this repair. Healthy executables in `~/.local/bin` can
 be used even when the current shell's PATH lacks that directory. Failed setup is
 retried on the next session; `step mcp prepare` also retries without requiring
 sign-in. The server name combines the plugin ID and its server name with `__`.
-Automatic StepPage installation is supported on macOS/Linux, including WSL.
+Automatic StepPage installation is supported on macOS, Linux, Windows, and WSL.
+On Windows the published bundle is downloaded directly and wrapped in a
+`steppage-mcp.cmd` launcher under `~/.local/bin`, because the POSIX installer
+script cannot run there; `step mcp prepare` probes that wrapper through
+`cmd /c` so no shell PATH change is required.
 
 Preparation preserves credentials, custom server commands, global overrides,
 disabled servers, and intentionally uninstalled plugins. A global declaration
