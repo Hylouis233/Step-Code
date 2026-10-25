@@ -42,6 +42,18 @@ test("login guidance quotes server names containing shell syntax", () => {
 	expect(message).toContain("step mcp login 'team'\\''s mcp'");
 });
 
+test("missing StepPage executable hint does not print mirror credentials", () => {
+	const message = describeMcpStartFailure({
+		name: "steppage__steppage",
+		command: "steppage-mcp",
+		provision: { command: "steppage-mcp", installer: "steppageInstaller" },
+		error: Object.assign(new Error("spawn steppage-mcp ENOENT"), { code: "ENOENT" }),
+		env: { STEPCODE_STEPPAGE_INSTALLER_URL: "https://alice:hunter2@mirror.example/install.sh?token=abc123" },
+	});
+	expect(message).toContain("curl -fsSL 'https://[redacted]@mirror.example/install.sh?token=[redacted]' | sh");
+	for (const secret of ["alice", "hunter2", "abc123"]) expect(message).not.toContain(secret);
+});
+
 afterEach(async () => {
 	await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });

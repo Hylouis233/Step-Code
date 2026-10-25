@@ -22,7 +22,7 @@ import {
 	readStepPluginManifest,
 	type StepPluginProvision,
 } from "./plugins.ts";
-import { ensureStepPageReady, isManagedStepPageCommand } from "./steppage-provision.ts";
+import { ensureStepPageReady, isManagedStepPageCommand, redactStepPageSecrets } from "./steppage-provision.ts";
 import { STEPCODE_VERSION } from "./version.ts";
 
 export { resolveStepMcpEnvironment } from "./mcp-environment.ts";
@@ -709,7 +709,9 @@ export function describeMcpStartFailure(input: {
 	}
 	if (!isMissingExecutable(input.error)) return `MCP server '${input.name}' could not start: ${detail}`;
 	const install = input.provision ? provisionInstallCommand(input.provision, input.env ?? process.env) : undefined;
-	const remedy = install ? `Install it with: ${install}, then restart Step.` : "Install it, then restart Step.";
+	const remedy = install
+		? `Install it with: ${redactStepPageSecrets(install, input.env ?? process.env)}, then restart Step.`
+		: "Install it, then restart Step.";
 	return `MCP server '${input.name}' could not start: '${input.command}' is not installed or not on PATH. ${remedy}`;
 }
 

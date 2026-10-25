@@ -48,10 +48,7 @@ export function stepPageCommandCandidates(
 	const managed = join(homeDir, ".local", "bin", "steppage-mcp");
 	if (platform !== "win32") return ["steppage-mcp", managed];
 	const candidates: string[] = [];
-	for (const rawEntry of (pathValue ?? "").split(";")) {
-		const entry = rawEntry.trim().replace(/^"(.*)"$/u, "$1");
-		// Relative entries (including ".") resolve against the working directory.
-		if (!entry || !(win32.isAbsolute(entry) || isAbsolute(entry))) continue;
+	for (const entry of absoluteWindowsPathEntries(pathValue)) {
 		for (const extension of [".cmd", ".exe", ".bat"]) {
 			const candidate = join(entry, `steppage-mcp${extension}`);
 			if (!candidates.includes(candidate) && fileExists(candidate)) candidates.push(candidate);
@@ -61,14 +58,78 @@ export function stepPageCommandCandidates(
 	return candidates;
 }
 
+/** Relative PATH entries (including ".") resolve against the working directory, so they are skipped. */
+function absoluteWindowsPathEntries(pathValue: string | undefined): string[] {
+	const entries: string[] = [];
+	for (const rawEntry of (pathValue ?? "").split(";")) {
+		const entry = rawEntry.trim().replace(/^"(.*)"$/u, "$1");
+		if (entry && (win32.isAbsolute(entry) || isAbsolute(entry))) entries.push(entry);
+	}
+	return entries;
+}
+
+/**
+ * The Node.js executable that checks the runtime and runs the bundle. On Windows
+ * `cmd` searches the working directory before PATH, so a bare `node` in the
+ * wrapper could run a project-controlled `node.cmd`; `node.exe` is resolved from
+ * absolute PATH entries instead. `process.execPath` is deliberately not used: in
+ * the standalone binary it is Step itself, not Node.js.
+ */
+export function resolveNodeExecutable(
+	platform: NodeJS.Platform,
+	pathValue?: string,
+	fileExists: (path: string) => boolean = existsSync,
+): string | undefined {
+	if (platform !== "win32") return "node";
+	for (const entry of absoluteWindowsPathEntries(pathValue)) {
+		const candidate = join(entry, "node.exe");
+		if (fileExists(candidate)) return candidate;
+	}
+	return undefined;
+}
+
 function pathValueOf(env: NodeJS.ProcessEnv): string | undefined {
 	const key = Object.keys(env).find((name) => name.toUpperCase() === "PATH");
 	return key ? env[key] : undefined;
 }
 
-/** The Windows wrapper installed next to the bundle; a bare ESM file must run via node. */
-export function renderStepPageWrapper(bundlePath: string): string {
-	return `@echo off\r\nnode "${bundlePath}" %*\r\n`;
+/**
+ * The Windows wrapper installed next to the bundle; a bare ESM file must run via
+ * node, named by the absolute path that passed the runtime check. `%` is doubled
+ * so a path cannot expand a variable inside the batch file.
+ */
+export function renderStepPageWrapper(nodePath: string, bundlePath: string): string {
+	const quote = (path: string) => `"${path.replaceAll("%", "%%")}"`;
+	return `@echo off\r\n${quote(nodePath)} ${quote(bundlePath)} %*\r\n`;
+}
+
+const SECRET_PARAMETER = /token|key|secret|passw(?:or)?d|pwd|auth|credential|signature|sig$|session/iu;
+
+function redactUrl(url: string): string {
+	return url
+		.replace(/^([a-z][a-z\d+.-]*:\/\/)[^/?#\s]*@/iu, "$1[redacted]@")
+		.replace(/([?&;#])([^=&;#]+)=([^&;#]*)/gu, (match, separator: string, name: string, value: string) => {
+			let decoded = name;
+			try {
+				decoded = decodeURIComponent(name);
+			} catch {}
+			return value && SECRET_PARAMETER.test(decoded) ? `${separator}${name}=[redacted]` : match;
+		});
+}
+
+/**
+ * Remove credentials from text shown to the user: URL userinfo, secret-looking
+ * query or fragment parameters, and the values of secret-named environment
+ * variables. Applied to the complete message, so a mirror URL is covered whether
+ * it came from a curl error or from the manual install hint.
+ */
+export function redactStepPageSecrets(text: string, env: NodeJS.ProcessEnv = process.env): string {
+	let redacted = text.replace(/\b[a-z][a-z\d+.-]*:\/\/[^\s"'<>`]+/giu, redactUrl);
+	for (const [key, value] of Object.entries(env)) {
+		if (value && value.length >= 4 && /key|token|secret|password|authorization/iu.test(key))
+			redacted = redacted.replaceAll(value, "[redacted]");
+	}
+	return redacted;
 }
 
 /** Default executable ownership may survive in an old global declaration. */
@@ -161,23 +222,31 @@ async function findHealthyStepPage(
 	return undefined;
 }
 
-async function assertNodeRuntime(env: NodeJS.ProcessEnv, signal: AbortSignal): Promise<void> {
+/** Returns the Node.js executable that passed the check, for the wrapper to reuse. */
+async function assertNodeRuntime(
+	env: NodeJS.ProcessEnv,
+	signal: AbortSignal,
+	platform: NodeJS.Platform,
+): Promise<string> {
+	const node = resolveNodeExecutable(platform, pathValueOf(env));
+	if (!node) throw new Error("Node.js >= 20 is required for StepPage; node.exe was not found on PATH.");
 	let nodeVersion: string;
 	try {
-		nodeVersion = (await execFileAsync("node", ["--version"], { env, signal, timeout: 5_000 })).stdout.trim();
+		nodeVersion = (await execFileAsync(node, ["--version"], { env, signal, timeout: 5_000 })).stdout.trim();
 	} catch {
 		signal.throwIfAborted();
 		throw new Error("Node.js >= 20 is required for StepPage; install Node.js and retry.");
 	}
 	const major = /^v(\d+)\./u.exec(nodeVersion)?.[1];
 	if (!major || Number(major) < 20) throw new Error(`Node.js >= 20 is required for StepPage; found ${nodeVersion}.`);
+	return node;
 }
 
 /**
  * Windows cannot run the POSIX installer script, so install the published bundle
  * directly: download it, then write the `cmd` wrapper the bundle needs to run.
  */
-async function installStepPageOnWindows(env: NodeJS.ProcessEnv, signal: AbortSignal): Promise<void> {
+async function installStepPageOnWindows(env: NodeJS.ProcessEnv, signal: AbortSignal, nodePath: string): Promise<void> {
 	const home = resolveStepHomeDir(env);
 	const bundleDir = join(home, ".steppage-mcp", "bin");
 	const bundlePath = join(bundleDir, "steppage-mcp.mjs");
@@ -191,7 +260,7 @@ async function installStepPageOnWindows(env: NodeJS.ProcessEnv, signal: AbortSig
 		timeout: 35_000,
 		maxBuffer: 8_192,
 	});
-	await writeFile(wrapperPath, renderStepPageWrapper(bundlePath));
+	await writeFile(wrapperPath, renderStepPageWrapper(nodePath, bundlePath));
 }
 
 /** Repair the managed executable without changing plugin manifests or credentials. */
@@ -228,8 +297,8 @@ export async function ensureStepPageReady(
 		// Another Step process may have completed installation while we waited.
 		const available = await findHealthyStepPage(env, signal, platform);
 		if (available) return { command: available, installed: false };
-		await assertNodeRuntime(env, signal);
-		if (platform === "win32") await installStepPageOnWindows(env, signal);
+		const nodePath = await assertNodeRuntime(env, signal, platform);
+		if (platform === "win32") await installStepPageOnWindows(env, signal, nodePath);
 		else {
 			// Download before executing so a failed curl cannot be hidden by `| sh`.
 			const script = await execFileAsync("curl", ["-fsSL", "--max-time", "30", stepPageInstallerUrl(env)], {
@@ -246,11 +315,8 @@ export async function ensureStepPageReady(
 		return { command, installed: true };
 	} catch (error) {
 		input.signal?.throwIfAborted();
-		let detail = error instanceof Error ? error.message : String(error);
-		for (const [key, value] of Object.entries(env)) {
-			if (value && value.length >= 4 && /key|token|secret|password|authorization/iu.test(key))
-				detail = detail.replaceAll(value, "[redacted]");
-		}
+		// Redact before truncating: a cut could drop the scheme that marks a URL.
+		const detail = redactStepPageSecrets(error instanceof Error ? error.message : String(error), env);
 		const installer = `curl -fsSL '${stepPageInstallerUrl(env).replace(/'/gu, "'\\''")}' | sh`;
 		const manual =
 			platform === "win32"
@@ -258,7 +324,10 @@ export async function ensureStepPageReady(
 				: `Install it with: ${installer}, then restart Step. You can also run: step mcp prepare, then restart Step.`;
 		return {
 			installed: false,
-			error: `StepPage is not ready: ${detail.slice(-2_000)} Step remains usable; StepPage setup will retry on the next launch. ${manual}`,
+			error: redactStepPageSecrets(
+				`StepPage is not ready: ${detail.slice(-2_000)} Step remains usable; StepPage setup will retry on the next launch. ${manual}`,
+				env,
+			),
 		};
 	} finally {
 		await release?.().catch(() => undefined);
