@@ -2,6 +2,7 @@ import type { AutocompleteProvider, AutocompleteSuggestions } from "../autocompl
 import { getKeybindings } from "../keybindings.ts";
 import { decodePrintableKey, matchesKey } from "../keys.ts";
 import { KillRing } from "../kill-ring.ts";
+import type { TextSegmenter } from "../segmenter.ts";
 import { type Component, CURSOR_MARKER, type Focusable, type TUI } from "../tui.ts";
 import { UndoStack } from "../undo-stack.ts";
 import {
@@ -30,15 +31,15 @@ function isPasteMarker(segment: string): boolean {
 }
 
 /**
- * A segmenter that wraps Intl.Segmenter and merges graphemes that fall
- * within paste markers into single atomic segments.  This makes cursor
- * movement, deletion, word-wrap, etc. treat paste markers as single units.
+ * A segmenter that merges graphemes that fall within paste markers into
+ * single atomic segments. This makes cursor movement, deletion, word-wrap,
+ * etc. treat paste markers as single units.
  *
  * Only markers whose numeric ID exists in `validIds` are merged.
  */
 function segmentWithMarkers(
 	text: string,
-	baseSegmenter: Intl.Segmenter,
+	baseSegmenter: TextSegmenter,
 	validIds: Set<number>,
 ): Iterable<Intl.SegmentData> {
 	// Fast path: no paste markers in the text or no valid IDs.
@@ -108,7 +109,7 @@ export interface TextChunk {
  * @param line - The text line to wrap
  * @param maxWidth - Maximum visible width per chunk
  * @param preSegmented - Optional pre-segmented graphemes (e.g. with paste-marker awareness).
- *                       When omitted the default Intl.Segmenter is used.
+ *                       When omitted the default grapheme segmenter is used.
  * @returns Array of chunks with text and position information
  */
 export function wordWrapLine(line: string, maxWidth: number, preSegmented?: Intl.SegmentData[]): TextChunk[] {

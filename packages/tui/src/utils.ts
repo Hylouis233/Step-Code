@@ -1,20 +1,23 @@
 import { eastAsianWidth } from "get-east-asian-width";
+import { graphemeSegmenter, nextGraphemeEnd } from "./grapheme.ts";
+import type { TextSegmenter } from "./segmenter.ts";
+import { wordSegmenter } from "./word-break.ts";
 
-// segmenters (shared instance)
-const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
-const wordSegmenter = new Intl.Segmenter(undefined, { granularity: "word" });
+export type { TextSegmenter } from "./segmenter.ts";
 
 /**
  * Get the shared grapheme segmenter instance.
+ * The instance is pure JavaScript. It does not call Intl.Segmenter.
  */
-export function getGraphemeSegmenter(): Intl.Segmenter {
+export function getGraphemeSegmenter(): TextSegmenter {
 	return graphemeSegmenter;
 }
 
 /**
  * Get the shared word segmenter instance.
+ * The instance is pure JavaScript. It does not call Intl.Segmenter.
  */
-export function getWordSegmenter(): Intl.Segmenter {
+export function getWordSegmenter(): TextSegmenter {
 	return wordSegmenter;
 }
 
@@ -79,13 +82,14 @@ function truncateFragmentToWidth(text: string, maxWidth: number): { text: string
 	if (!hasAnsi && !hasTabs) {
 		let result = "";
 		let width = 0;
-		for (const { segment } of graphemeSegmenter.segment(text)) {
-			const w = graphemeWidth(segment);
-			if (width + w > maxWidth) {
-				break;
-			}
-			result += segment;
+		let i = 0;
+		while (i < text.length) {
+			const end = nextGraphemeEnd(text, i);
+			const w = clusterWidth(text, i, end);
+			if (width + w > maxWidth) break;
+			result += text.slice(i, end);
 			width += w;
+			i = end;
 		}
 		return { text: result, width };
 	}
@@ -126,8 +130,11 @@ function truncateFragmentToWidth(text: string, maxWidth: number): { text: string
 			end++;
 		}
 
-		for (const { segment } of graphemeSegmenter.segment(text.slice(i, end))) {
-			const w = graphemeWidth(segment);
+		const slice = text.slice(i, end);
+		let offset = 0;
+		while (offset < slice.length) {
+			const clusterEnd = nextGraphemeEnd(slice, offset);
+			const w = clusterWidth(slice, offset, clusterEnd);
 			if (width + w > maxWidth) {
 				return { text: result, width };
 			}
@@ -135,8 +142,9 @@ function truncateFragmentToWidth(text: string, maxWidth: number): { text: string
 				result += pendingAnsi;
 				pendingAnsi = "";
 			}
-			result += segment;
+			result += slice.slice(offset, clusterEnd);
 			width += w;
+			offset = clusterEnd;
 		}
 		i = end;
 	}
@@ -207,8 +215,8 @@ function graphemeWidth(segment: string): number {
 
 	let width = eastAsianWidth(cp);
 
-	// Intl.Segmenter can group multiple terminal-spacing code points into one
-	// grapheme. Count trailing visible code points that terminals may allocate
+	// A grapheme cluster can group multiple terminal-spacing code points.
+	// Count trailing visible code points that terminals may allocate
 	// cells for: Indic consonants after marks, halfwidth/fullwidth forms, and
 	// Thai/Lao AM vowels.
 	let followsMark = false;
@@ -234,6 +242,105 @@ function graphemeWidth(segment: string): number {
 	return width;
 }
 
+const bmpWidth = new Uint8Array(65536);
+
+function widthOfBmp(unit: number): number {
+	if (unit >= 0x20 && unit <= 0x7e) return 1;
+	if (unit >= 0x4e00 && unit <= 0x9fff) return 2;
+	if (unit >= 0xac00 && unit <= 0xd7a3) return 2;
+	if (unit >= 0x3041 && unit <= 0x3096) return 2;
+	if (unit >= 0x30a1 && unit <= 0x30fa) return 2;
+	if (unit >= 0xff01 && unit <= 0xff60) return 2;
+	const cached = bmpWidth[unit]!;
+	if (cached !== 0) return cached - 1;
+	const width = graphemeWidth(String.fromCharCode(unit));
+	bmpWidth[unit] = width + 1;
+	return width;
+}
+
+function fastUnitWidth(unit: number, next: number): number {
+	if (
+		next >= 0x0300 &&
+		!(
+			(next >= 0x4e00 && next <= 0x9fff) ||
+			(next >= 0xac00 && next <= 0xd7a3) ||
+			(next >= 0x3041 && next <= 0x3096) ||
+			(next >= 0x30a1 && next <= 0x30fa) ||
+			(next >= 0xff01 && next <= 0xff60) ||
+			(next >= 0x3400 && next <= 0x4dbf)
+		)
+	) {
+		return -1;
+	}
+	if (unit >= 0x20 && unit <= 0x7e) return 1;
+	if (
+		(unit >= 0x4e00 && unit <= 0x9fff) ||
+		(unit >= 0xac00 && unit <= 0xd7a3) ||
+		(unit >= 0x3041 && unit <= 0x3096) ||
+		(unit >= 0x30a1 && unit <= 0x30fa) ||
+		(unit >= 0xff01 && unit <= 0xff60)
+	) {
+		return 2;
+	}
+	return -1;
+}
+
+function clusterWidth(text: string, start: number, end: number): number {
+	if (end === start + 1) return widthOfBmp(text.charCodeAt(start));
+	return graphemeWidth(text.slice(start, end));
+}
+
+function measurePlain(text: string, from: number, to: number): number {
+	let width = 0;
+	let i = from;
+	while (i < to) {
+		const unit = text.charCodeAt(i);
+		if (unit < 0xd800) {
+			const next = i + 1 < to ? text.charCodeAt(i + 1) : -1;
+			const fast = fastUnitWidth(unit, next);
+			if (fast >= 0) {
+				width += fast;
+				i++;
+				continue;
+			}
+		}
+		const end = nextGraphemeEnd(text, i, to);
+		if (end <= i) break;
+		width += clusterWidth(text, i, end);
+		i = end;
+	}
+	return width;
+}
+
+function measureVisible(str: string): number {
+	let width = 0;
+	let i = 0;
+	while (i < str.length) {
+		const unit = str.charCodeAt(i);
+		if (unit === 0x1b) {
+			const ansi = extractAnsiCode(str, i);
+			if (ansi) {
+				i += ansi.length;
+				continue;
+			}
+		}
+		if (unit === 0x09) {
+			width += 3;
+			i++;
+			continue;
+		}
+		let j = i + 1;
+		while (j < str.length) {
+			const next = str.charCodeAt(j);
+			if (next === 0x1b || next === 0x09) break;
+			j++;
+		}
+		width += measurePlain(str, i, j);
+		i = j;
+	}
+	return width;
+}
+
 /**
  * Calculate the visible width of a string in terminal columns.
  */
@@ -253,34 +360,7 @@ export function visibleWidth(str: string): number {
 		return cached;
 	}
 
-	// Normalize: tabs to 3 spaces, strip ANSI escape codes
-	let clean = str;
-	if (str.includes("\t")) {
-		clean = clean.replace(/\t/g, "   ");
-	}
-	if (clean.includes("\x1b")) {
-		// Strip supported ANSI/OSC/APC escape sequences in one pass.
-		// This covers CSI styling/cursor codes, OSC hyperlinks and prompt markers,
-		// and APC sequences like CURSOR_MARKER.
-		let stripped = "";
-		let i = 0;
-		while (i < clean.length) {
-			const ansi = extractAnsiCode(clean, i);
-			if (ansi) {
-				i += ansi.length;
-				continue;
-			}
-			stripped += clean[i];
-			i++;
-		}
-		clean = stripped;
-	}
-
-	// Calculate width
-	let width = 0;
-	for (const { segment } of graphemeSegmenter.segment(clean)) {
-		width += graphemeWidth(segment);
-	}
+	const width = measureVisible(str);
 
 	// Cache result
 	if (widthCache.size >= WIDTH_CACHE_SIZE) {

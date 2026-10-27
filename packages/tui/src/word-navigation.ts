@@ -4,7 +4,7 @@ const wordSegmenter = getWordSegmenter();
 
 /**
  * Options for word navigation functions.
- * When omitted, uses the default Intl.Segmenter word segmentation.
+ * When omitted, uses the default word segmentation.
  */
 export interface WordNavigationOptions {
 	/** Custom segmenter returning word segments for the given text. */

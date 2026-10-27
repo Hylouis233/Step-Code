@@ -1,5 +1,5 @@
 import { theme } from "@step-harness/coding-agent";
-import { type Component, truncateToWidth, visibleWidth } from "@step-harness/pi-tui";
+import { type Component, getGraphemeSegmenter, truncateToWidth, visibleWidth } from "@step-harness/pi-tui";
 import { formatCwdForFooter } from "./footer.ts";
 import {
 	alignMarkWithBody,
@@ -67,9 +67,7 @@ const ULTRACODE_TIP = {
 	description: "Use parallel agents for this session. One turn: ultracode: task.",
 } as const;
 
-const graphemeSegmenter = new Intl.Segmenter(undefined, {
-	granularity: "grapheme",
-});
+const graphemeSegmenter = getGraphemeSegmenter();
 
 /**
  * The former Step renderer hard-wrapped facts by display columns (rather than
